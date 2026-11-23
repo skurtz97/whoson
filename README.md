@@ -32,10 +32,16 @@ its sidedeck imports `CODE64`.
 
 ## Build and run
 
-```
+```sh
 make            # builds ./whoson with ibm-clang, -m64, EBCDIC character mode
 make check      # runs it under the CEE heap checker and storage report
-make install    # copies it to ~/.local/bin
+make install    # copies it to ~/.local/bin, creating it if needed
+```
+
+`PREFIX` defaults to `$(HOME)/.local`; pass your own to install elsewhere:
+
+```sh
+make PREFIX=/usr/local install   # -> /usr/local/bin/whoson
 ```
 
 The sources are ASCII and stay that way; the compiler turns the literals into
