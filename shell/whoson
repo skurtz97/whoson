@@ -1,0 +1,107 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR BSD-2-Clause
+# SPDX-FileCopyrightText: 2026 Sean Kurtz
+#
+# whoson - who is logged on to this z/OS system, and how (TSO/E or SSH).
+#
+# Runs under zash, ksh and POSIX sh. Session data comes from ZOAU's opercmd,
+# which needs its APF-authorized helpers on PATH and READ on MVS.MCSOPER.ZOAU
+# in the OPERCMDS class.
+#
+# TSO/E users come from DISPLAY TS,ALL (the only form that lists them here:
+# DISPLAY TSO,... is not a valid command on this system). SSH users come from
+# DISPLAY OMVS,A=ALL, where each session is an "sshd" process; the listener and
+# the pre-authentication half of every session run under a daemon account, so
+# that account is dropped and started tasks never match.
+#
+# shortcoming: a TSO/E user who starts an OMVS shell appears only as TSO/E, and
+# SSH elapsed time is measured from the session process start.
+
+case ${1-} in
+-h | --help)
+	printf 'usage: whoson\n\nList logged-on users with session type (TSO/E, SSH).\n'
+	exit 0
+	;;
+'') ;;
+*)
+	printf 'whoson: unknown argument: %s\n' "$1" >&2
+	exit 2
+	;;
+esac
+
+opercmd=$(command -v opercmd 2>/dev/null) ||
+	opercmd=/usr/lpp/IBM/zoautil/bin/opercmd
+if [ ! -x "$opercmd" ]; then
+	printf 'whoson: opercmd not found; is ZOAU installed and on PATH?\n' >&2
+	exit 1
+fi
+# opercmd shells out to opercmdhelper et al.; they live beside it.
+PATH=${opercmd%/*}:$PATH
+export PATH
+
+tmpd=${TMPDIR:-/tmp}
+tmpts=$tmpd/whoson.$$.ts
+tmpos=$tmpd/whoson.$$.omvs
+trap 'rm -f "$tmpts" "$tmpos"' EXIT HUP INT TERM
+
+"$opercmd" 'D TS,A' >"$tmpts" 2>&1
+"$opercmd" 'D OMVS,A=ALL' >"$tmpos" 2>&1
+for f in "$tmpts" "$tmpos"; do
+	if grep -q -e 'NOT AUTHORIZED' -e 'FSUM7351' -e 'not found' "$f"; then
+		printf 'whoson: cannot display users:\n' >&2
+		grep -e 'NOT AUTHORIZED' -e 'FSUM7351' -e 'not found' "$f" >&2
+		exit 1
+	fi
+done
+
+now=$(date +%H.%M.%S)
+printf '%-8s %-7s %-6s %-4s %-10s\n' USER SESSION STATUS ASID ELAPSED
+# OMVS first: it is the only source of start times, and it carries the sshd
+# processes. Its rows are USER JOBNAME ASID PID PPID STATE START CT_SECS,
+# each followed by a "LATCHWAITPID= .. CMD=..." line naming the process.
+# TSO/E rows are "USER  STATUS  A=ASID  PER=.."; their ET field is not used,
+# because its unit is undocumented and disagrees with the clock.
+awk -v now="$now" '
+	function secs(t, a) {
+		split(t, a, ".")
+		return a[1] * 3600 + a[2] * 60 + a[3]
+	}
+	function elapsed(t, d) {
+		d = secs(now) - secs(t)
+		if (d < 0)
+			d += 86400
+		return sprintf("%02d.%02d.%02d", d / 3600, d % 3600 / 60, d % 60)
+	}
+	FNR == NR {
+		if (NF == 8) {
+			n++
+			u[n] = $1; a[n] = $3; pp[n] = $5; s[n] = $7; c[n] = ""
+			next
+		}
+		if (/CMD=/ && n) {
+			c[n] = $0
+			sub(/.*CMD=/, "", c[n])
+		}
+		next
+	}
+	FNR == 1 {
+		# sshd runs its listener and the pre-auth half of every session
+		# under a daemon account, so those rows are processes, not people.
+		for (i = 1; i <= n; i++) {
+			start[a[i]] = s[i]
+			if (pp[i] == 1 && c[i] ~ /sshd/)
+				daemon[u[i]] = 1
+		}
+		for (i = 1; i <= n; i++) {
+			if (c[i] !~ /sshd/ || u[i] in daemon)
+				continue
+			printf "%-8s %-7s %-6s %-4s %-10s\n", u[i], "SSH", "-", a[i], start[a[i]] == "" ? "-" : elapsed(s[i])
+		}
+	}
+	/A=/ {
+		asid = $0
+		sub(/.*A=/, "", asid)
+		sub(/[^0-9A-F].*/, "", asid)
+		printf "%-8s %-7s %-6s %-4s %-10s\n", $1, "TSO/E", $2, asid, start[asid] == "" ? "-" : elapsed(start[asid])
+	}
+' "$tmpos" "$tmpts" | sort

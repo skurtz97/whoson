@@ -1,0 +1,10 @@
+# z/OS: check text out tagged ISO8859-1 so the ASCII-tagged sources compile
+# without a conversion step, while history stays UTF-8.
+* text=auto eol=lf
+* zos-working-tree-encoding=ISO8859-1 git-encoding=ISO8859-1
+*.c         text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
+*.h         text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
+*.sh        text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
+*.md        text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
+Makefile    text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
+shell/whoson text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
