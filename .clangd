@@ -1,0 +1,33 @@
+# clangd settings for whoson, taken from zash.  The Makefile's flags are not a
+# compilation database, so the editor is told the same language level and
+# macros here.
+CompileFlags:
+  Add: [-std=c17, -D_XOPEN_SOURCE=600, -D_POSIX_C_SOURCE=200809L,
+        -D_ALL_SOURCE, -D_EXT, -Wall, -Wextra, -Wshadow, -Wconversion]
+  # IBM Open XL only: the editor is not that compiler.
+  Remove: [-fzos-le-char-mode=*, -m64]
+
+---
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: None
+  ClangTidy:
+    # Use .clang-tidy; do not duplicate its checks here.
+    FastCheckFilter: Strict
+    # Two checks .clang-tidy already switches off or allows.  clangd applies
+    # its CheckOptions unevenly between clang-tidy versions, so name them
+    # here too.  The tree writes `if (ptr)` and spells C11 keywords such as
+    # _Static_assert, which are the implementation's namespace to define.
+    Remove:
+      - readability-implicit-bool-conversion
+      - bugprone-reserved-identifier
+Index:
+  Background: Build
+InlayHints:
+  Enabled: false
+Hover:
+  ShowAKA: true
+Completion:
+  AllScopes: false
+Style:
+  FullyQualifiedNamespaces: []

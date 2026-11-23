@@ -1,0 +1,101 @@
+---
+# Checks for whoson, taken from zash.  Every check named here finds a real bug
+# in C that talks to a library (memory, integer handling) or keeps the code in
+# the style of the tree.  Checks that disagree with the project's choices are
+# switched off below, with the reason.
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  cert-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-branch-clone,
+  -bugprone-narrowing-conversions,
+  -bugprone-reserved-identifier,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cert-err33-c,
+  -cert-err34-c,
+  -cert-msc24-c,
+  -cert-msc33-c,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -misc-include-cleaner,
+  -readability-braces-around-statements,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-else-after-return,
+  -readability-isolate-declaration,
+  -readability-non-const-parameter,
+  -readability-avoid-unconditional-preprocessor-if,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -readability-avoid-nested-conditional-operator,
+  -readability-uppercase-literal-suffix,
+  -readability-math-missing-parentheses,
+  -bugprone-suspicious-string-compare,
+  -bugprone-not-null-terminated-result,
+  -clang-analyzer-security.insecureAPI.strcpy,
+  -cert-str34-c,
+  -bugprone-signal-handler,
+  -cert-sig30-c,
+  -bugprone-switch-missing-default-case,
+  -misc-header-include-cycle,
+  -readability-redundant-declaration,
+  -readability-named-parameter,
+  -readability-suspicious-call-argument,
+  -readability-function-size,
+  -readability-inconsistent-declaration-parameter-name,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -performance-no-int-to-ptr
+
+# Not enabled, on purpose:
+#   bugprone-easily-swappable-parameters  (copy_field(dst, src, n) is fine)
+#   cert-err33-c        (unchecked close()/fflush() are deliberate on cleanup
+#                        paths)
+#   cert-err34-c        (strtol is wrapped by the parser with its own checks)
+#   cert-msc24-c/33-c   (asks for _s functions and warns about asctime;
+#                        neither exists on z/OS)
+#   readability-braces-around-statements
+#                       (one-line if bodies are the house style; the
+#                        .clang-format keeps them on their own line)
+#   bugprone-multi-level-implicit-pointer-conversion
+#                       (the qsort() comparison idiom)
+#   bugprone-suspicious-string-compare
+#                       (`!strcmp(a, b)` is the house idiom for equality)
+#   readability-magic-numbers, readability-identifier-length
+#                       (noise in a text parser)
+
+WarningsAsErrors: ''
+FormatStyle: file
+SystemHeaders: false
+
+CheckOptions:
+  # ---- naming: snake_case everywhere, UPPER_CASE for constants ----------
+  readability-identifier-naming.FunctionCase: lower_case
+  readability-identifier-naming.VariableCase: lower_case
+  readability-identifier-naming.ParameterCase: lower_case
+  readability-identifier-naming.LocalVariableCase: lower_case
+  readability-identifier-naming.GlobalVariableCase: lower_case
+  readability-identifier-naming.StructCase: lower_case
+  readability-identifier-naming.UnionCase: lower_case
+  readability-identifier-naming.EnumCase: lower_case
+  readability-identifier-naming.MemberCase: lower_case
+  readability-identifier-naming.TypedefCase: lower_case
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  readability-identifier-naming.EnumConstantCase: UPPER_CASE
+  readability-identifier-naming.GlobalConstantCase: lower_case
+
+  # ---- readability -------------------------------------------------------
+  readability-implicit-bool-conversion.AllowIntegerConditions: true
+  readability-implicit-bool-conversion.AllowPointerConditions: true
+
+  # ---- bugprone / misc ---------------------------------------------------
+  bugprone-signed-char-misuse.CharTypdefsToIgnore: ''
+  bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression: true
+  misc-unused-parameters.StrictMode: false
