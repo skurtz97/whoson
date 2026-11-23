@@ -59,12 +59,6 @@ so the console command is passed quoted (`"D TS,A"`) as a single argument, in
 EBCDIC. Unquoted, the `D` is read as an option letter and the call fails with
 `opercmd`'s usage text and rc 2.
 
-## shell/
-
-`shell/whoson` is the earlier POSIX shell version. It needs `opercmd` on
-`PATH` and the APF-authorized helpers behind it, but no compiler, so it is
-useful on a system where the build is not.
-
 ## License
 
 MIT OR Apache-2.0 OR BSD-2-Clause, at your option. See `LICENSE`.
