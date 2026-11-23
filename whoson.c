@@ -23,13 +23,19 @@
  * from that.
  */
 
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
+#if defined(__MVS__)
 #include <zoautil.h>
+#else
+#include "tools/zoautil-shim.h" /* clangd on a non-z/OS host only */
+#endif
 
 #define MAX_TOKENS 16
 #define MAX_ARGS 64
@@ -52,8 +58,8 @@ struct proc {
 	char user[NAME_LEN];
 	char asid[ASID_LEN];
 	char start[TIME_LEN];
-	long pid;
-	int ppid;
+	int32_t pid;
+	int32_t ppid;
 	char cmd[CMD_LEN];
 };
 
@@ -118,11 +124,11 @@ static int is_hms(const char *s)
 	return digits == 6 && dots == 2;
 }
 
-static long hms_to_secs(const char *s)
+static int32_t hms_to_secs(const char *s)
 {
-	long h = 0, m = 0, sec = 0;
+	int32_t h = 0, m = 0, sec = 0;
 
-	if (sscanf(s, "%ld.%ld.%ld", &h, &m, &sec) != 3)
+	if (sscanf(s, "%" SCNd32 ".%" SCNd32 ".%" SCNd32, &h, &m, &sec) != 3)
 		return -1;
 	return h * 3600 + m * 60 + sec;
 }
@@ -131,19 +137,19 @@ static void format_elapsed(const char *start, char *out, size_t outlen)
 {
 	time_t now = time(NULL);
 	struct tm *tm = localtime(&now);
-	long then, delta;
+	int32_t then, delta;
 
 	then = hms_to_secs(start);
 	if (then < 0 || tm == NULL) {
 		snprintf(out, outlen, "-");
 		return;
 	}
-	delta = (long)tm->tm_hour * 3600 + (long)tm->tm_min * 60 + tm->tm_sec -
-		then;
+	delta = (int32_t)tm->tm_hour * 3600 + (int32_t)tm->tm_min * 60 +
+		(int32_t)tm->tm_sec - then;
 	if (delta < 0)
 		delta += 86400;
-	snprintf(out, outlen, "%02ld.%02ld.%02ld", delta / 3600,
-		 delta % 3600 / 60, delta % 60);
+	snprintf(out, outlen, "%02" PRId32 ".%02" PRId32 ".%02" PRId32,
+		 delta / 3600, delta % 3600 / 60, delta % 60);
 }
 
 static void copy_field(char *dst, size_t dstlen, const char *src)
@@ -174,8 +180,8 @@ static int parse_omvs(char *text, struct proc *procs, int max)
 			copy_field(procs[n].user, NAME_LEN, tok[0]);
 			copy_field(procs[n].asid, ASID_LEN, tok[2]);
 			copy_field(procs[n].start, TIME_LEN, tok[6]);
-			procs[n].pid = strtol(tok[3], NULL, 10);
-			procs[n].ppid = (int)strtol(tok[4], NULL, 10);
+			procs[n].pid = (int32_t)strtol(tok[3], NULL, 10);
+			procs[n].ppid = (int32_t)strtol(tok[4], NULL, 10);
 			procs[n].cmd[0] = '\0';
 			n++;
 		} else if (n > 0) {
@@ -224,10 +230,10 @@ static void fmt_clock(const char *in, char *out, size_t outlen)
 	}
 	{
 		double secs = atof(in);
-		long whole = (long)secs;
+		int32_t whole = (int32_t)secs;
 
-		snprintf(out, outlen, "%02ld.%02ld.%02ld", whole / 3600,
-			 whole % 3600 / 60, whole % 60);
+		snprintf(out, outlen, "%02" PRId32 ".%02" PRId32 ".%02" PRId32,
+			 whole / 3600, whole % 3600 / 60, whole % 60);
 	}
 }
 
@@ -329,7 +335,7 @@ static void set_pid(const struct proc *procs, int nprocs, struct row *r)
 {
 	for (int i = 0; i < nprocs; i++) {
 		if (strcmp(procs[i].asid, r->asid) == 0) {
-			snprintf(r->pid, PID_LEN, "%ld", procs[i].pid);
+			snprintf(r->pid, PID_LEN, "%" PRId32, procs[i].pid);
 			copy_field(r->session, sizeof(r->session),
 				   "TSO/E OMVS");
 			return;
@@ -355,7 +361,7 @@ static int add_ssh_rows(const struct proc *procs, int nprocs, struct row *rows,
 		copy_field(rows[nrows].scl, SCL_LEN, "NA");
 		copy_field(rows[nrows].prio, PRIO_LEN, "NA");
 		copy_field(rows[nrows].rgp, RGP_LEN, "NA");
-		snprintf(rows[nrows].pid, PID_LEN, "%ld", procs[i].pid);
+		snprintf(rows[nrows].pid, PID_LEN, "%" PRId32, procs[i].pid);
 		format_elapsed(procs[i].start, rows[nrows].elapsed, TIME_LEN);
 		nrows++;
 	}
