@@ -5,13 +5,17 @@ CPU time, elapsed time, service class, priority and region size.
 
 ```
 $ whoson
-USER     TYPE   STATUS ASID WUID       CPU      ELAPSED    SCL  PRIO RGP
-SKURTZ   SSH    -      0033 -          -        04.06.29   -    -    -
-SKURTZ   TSO/E  OWT    0058 TSU08375   000.058  01.26.04   TSO  1    N/A
+USER     TYPE         STATUS ASID PID         WUID       CPU      ELAPSED    SCL  PRIO RGP
+SKURTZ   SSH          -      0033 67109440    NA         NA       04.21.51   NA   NA   NA
+SKURTZ   TSO/E OMVS   OWT O  0058 33554625    TSU08400   000.870  00.08.00   TSO  1    N/A
 ```
 
 `TYPE` is `TSO/E` for a session listed by `DISPLAY TS,A`, `SSH` for a session
-whose process is an `sshd`.
+whose process is an `sshd`, and `TSO/E OMVS` for a TSO/E session that is also
+using an OMVS process — a TSO/E logon you can reach the POSIX side from. `PID`
+is the OMVS process id of that session, matched to the TSO/E session by
+address space id: an SSH session always has one, a TSO/E session only while it
+owns an OMVS process, and `NA` otherwise.
 
 ## Requirements
 
@@ -54,12 +58,6 @@ The vector's `opercmd` splits its argument string into `argv` without a shell,
 so the console command is passed quoted (`"D TS,A"`) as a single argument, in
 EBCDIC. Unquoted, the `D` is read as an option letter and the call fails with
 `opercmd`'s usage text and rc 2.
-
-## shell/
-
-`shell/whoson` is the earlier POSIX shell version. It needs `opercmd` on
-`PATH` and the APF-authorized helpers behind it, but no compiler, so it is
-useful on a system where the build is not.
 
 ## License
 

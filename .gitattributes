@@ -7,4 +7,3 @@
 *.sh        text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
 *.md        text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
 Makefile    text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
-shell/whoson text zos-working-tree-encoding=iso8859-1 git-encoding=utf-8
