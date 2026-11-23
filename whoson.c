@@ -31,11 +31,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#if defined(__MVS__)
 #include <zoautil.h>
-#else
-#include "tools/zoautil-shim.h" /* clangd on a non-z/OS host only */
-#endif
 
 #define MAX_TOKENS 16
 #define MAX_ARGS 64
