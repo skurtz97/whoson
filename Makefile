@@ -19,7 +19,7 @@
 # EBCDIC is deliberate: the ssh channel converts terminal output from EBCDIC
 # to ASCII, and ZOAU returns its text in EBCDIC. Source stays ASCII-tagged;
 # the compiler turns literals into EBCDIC. Only opercmd's argument string is
-# converted to ASCII, in src/whoson.c.
+# converted to ASCII, in whoson.c.
 #
 # POSIX make syntax only (no ?=, no .PHONY): z/OS has IBM's make as well as
 # GNU make, and IBM's rejects those.
@@ -35,8 +35,8 @@ CEEOPTS   = HEAPCHK(ON,1,32),RPTSTG(ON),FILETAG(AUTOCVT,AUTOTAG),POSIX(ON)
 
 all: whoson
 
-whoson: src/whoson.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ src/whoson.c $(ZOAU_DLL)
+whoson: whoson.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ whoson.c $(ZOAU_DLL)
 
 # CEE's heap checker catches overruns; RPTSTG prints the storage report at
 # exit, which is how leaks show up without a debugger.
