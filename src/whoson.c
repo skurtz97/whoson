@@ -45,6 +45,7 @@
 #define RGP_LEN 12
 #define PID_LEN 12
 #define STATUS_LEN 12
+#define SESSION_LEN 12
 #define CMD_LEN 256
 
 struct proc {
@@ -58,7 +59,7 @@ struct proc {
 
 struct row {
 	char user[NAME_LEN];
-	char session[8];
+	char session[SESSION_LEN];
 	char status[STATUS_LEN];
 	char asid[ASID_LEN];
 	char wuid[WUID_LEN];
@@ -74,7 +75,8 @@ static int usage_error(const char *msg)
 {
 	fprintf(stderr, "whoson: %s\n", msg);
 	fprintf(stderr, "usage: whoson\n\n"
-			"List logged-on users with session type (TSO/E, SSH).\n");
+			"List logged-on users with session type (TSO/E, "
+			"TSO/E OMVS, SSH).\n");
 	return 2;
 }
 
@@ -321,12 +323,15 @@ static int parse_ts(char *text, struct row *rows, int max)
 }
 
 /* PID of the OMVS process in this address space, or "NA" for a TSO/E
- * session that has no OMVS process at all. */
+ * session that has no OMVS process at all.  A session that has one is
+ * labelled "TSO/E OMVS", so it is obvious that a TSO/E logon is behind it. */
 static void set_pid(const struct proc *procs, int nprocs, struct row *r)
 {
 	for (int i = 0; i < nprocs; i++) {
 		if (strcmp(procs[i].asid, r->asid) == 0) {
 			snprintf(r->pid, PID_LEN, "%ld", procs[i].pid);
+			copy_field(r->session, sizeof(r->session),
+				   "TSO/E OMVS");
 			return;
 		}
 	}
@@ -467,11 +472,11 @@ int main(int argc, char *argv[])
 	nrows = add_ssh_rows(procs, nprocs, rows, nrows, MAX_ROWS);
 	qsort(rows, (size_t)nrows, sizeof(rows[0]), compare_rows);
 
-	printf("%-8s %-6s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
+	printf("%-8s %-12s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
 	       "USER", "TYPE", "STATUS", "ASID", "PID", "WUID", "CPU",
 	       "ELAPSED", "SCL", "PRIO", "RGP");
 	for (int i = 0; i < nrows; i++)
-		printf("%-8s %-6s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
+		printf("%-8s %-12s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
 		       rows[i].user, rows[i].session, rows[i].status,
 		       rows[i].asid, rows[i].pid, rows[i].wuid, rows[i].cpu,
 		       rows[i].elapsed, rows[i].scl, rows[i].prio,
