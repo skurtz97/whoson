@@ -5,13 +5,16 @@ CPU time, elapsed time, service class, priority and region size.
 
 ```
 $ whoson
-USER     TYPE   STATUS ASID WUID       CPU      ELAPSED    SCL  PRIO RGP
-SKURTZ   SSH    -      0033 -          -        04.06.29   -    -    -
-SKURTZ   TSO/E  OWT    0058 TSU08375   000.058  01.26.04   TSO  1    N/A
+USER     TYPE   STATUS ASID PID         WUID       CPU      ELAPSED    SCL  PRIO RGP
+SKURTZ   SSH    -      0033 67109440    -          -        04.12.07   -    -    NA
+SKURTZ   TSO/E  OWT    0058 NA          TSU08375   000.058  01.31.42   TSO  1    N/A
 ```
 
 `TYPE` is `TSO/E` for a session listed by `DISPLAY TS,A`, `SSH` for a session
-whose process is an `sshd`.
+whose process is an `sshd`. `PID` is the OMVS process id of that session,
+matched to the TSO/E session by address space id: an SSH session always has
+one, a TSO/E session has one only while it owns an OMVS process, and shows
+`NA` otherwise.
 
 ## Requirements
 

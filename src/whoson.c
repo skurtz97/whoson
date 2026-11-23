@@ -43,12 +43,14 @@
 #define SCL_LEN 8
 #define PRIO_LEN 4
 #define RGP_LEN 12
+#define PID_LEN 12
 #define CMD_LEN 256
 
 struct proc {
 	char user[NAME_LEN];
 	char asid[ASID_LEN];
 	char start[TIME_LEN];
+	long pid;
 	int ppid;
 	char cmd[CMD_LEN];
 };
@@ -64,6 +66,7 @@ struct row {
 	char scl[SCL_LEN];
 	char prio[PRIO_LEN];
 	char rgp[RGP_LEN];
+	char pid[PID_LEN];
 };
 
 static int usage_error(const char *msg)
@@ -168,6 +171,7 @@ static int parse_omvs(char *text, struct proc *procs, int max)
 			copy_field(procs[n].user, NAME_LEN, tok[0]);
 			copy_field(procs[n].asid, ASID_LEN, tok[2]);
 			copy_field(procs[n].start, TIME_LEN, tok[6]);
+			procs[n].pid = strtol(tok[3], NULL, 10);
 			procs[n].ppid = (int)strtol(tok[4], NULL, 10);
 			procs[n].cmd[0] = '\0';
 			n++;
@@ -232,7 +236,7 @@ static int parse_ts(char *text, struct row *rows, int max)
 			copy_field(r->elapsed, TIME_LEN, "-");
 			copy_field(r->scl, SCL_LEN, "-");
 			copy_field(r->prio, PRIO_LEN, "-");
-			copy_field(r->rgp, RGP_LEN, "-");
+			copy_field(r->rgp, RGP_LEN, "NA");
 			n++;
 			start = 1;
 		}
@@ -272,6 +276,19 @@ static int parse_ts(char *text, struct row *rows, int max)
 	return n;
 }
 
+/* PID of the OMVS process in this address space, or "NA" for a TSO/E
+ * session that has no OMVS process at all. */
+static void set_pid(const struct proc *procs, int nprocs, struct row *r)
+{
+	for (int i = 0; i < nprocs; i++) {
+		if (strcmp(procs[i].asid, r->asid) == 0) {
+			snprintf(r->pid, PID_LEN, "%ld", procs[i].pid);
+			return;
+		}
+	}
+	copy_field(r->pid, PID_LEN, "NA");
+}
+
 static int add_ssh_rows(const struct proc *procs, int nprocs, struct row *rows,
 			int nrows, int max)
 {
@@ -288,7 +305,8 @@ static int add_ssh_rows(const struct proc *procs, int nprocs, struct row *rows,
 		copy_field(rows[nrows].cpu, CPU_LEN, "-");
 		copy_field(rows[nrows].scl, SCL_LEN, "-");
 		copy_field(rows[nrows].prio, PRIO_LEN, "-");
-		copy_field(rows[nrows].rgp, RGP_LEN, "-");
+		copy_field(rows[nrows].rgp, RGP_LEN, "NA");
+		snprintf(rows[nrows].pid, PID_LEN, "%ld", procs[i].pid);
 		format_elapsed(procs[i].start, rows[nrows].elapsed, TIME_LEN);
 		nrows++;
 	}
@@ -400,16 +418,18 @@ int main(int argc, char *argv[])
 
 	nprocs = parse_omvs(omvs_text, procs, MAX_PROCS);
 	nrows = parse_ts(ts_text, rows, MAX_ROWS);
+	for (int i = 0; i < nrows; i++)
+		set_pid(procs, nprocs, &rows[i]);
 	nrows = add_ssh_rows(procs, nprocs, rows, nrows, MAX_ROWS);
 	qsort(rows, (size_t)nrows, sizeof(rows[0]), compare_rows);
 
-	printf("%-8s %-6s %-6s %-4s %-10s %-8s %-10s %-4s %-4s %-6s\n",
-	       "USER", "TYPE", "STATUS", "ASID", "WUID", "CPU", "ELAPSED",
-	       "SCL", "PRIO", "RGP");
+	printf("%-8s %-6s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
+	       "USER", "TYPE", "STATUS", "ASID", "PID", "WUID", "CPU",
+	       "ELAPSED", "SCL", "PRIO", "RGP");
 	for (int i = 0; i < nrows; i++)
-		printf("%-8s %-6s %-6s %-4s %-10s %-8s %-10s %-4s %-4s %-6s\n",
+		printf("%-8s %-6s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
 		       rows[i].user, rows[i].session, rows[i].status,
-		       rows[i].asid, rows[i].wuid, rows[i].cpu,
+		       rows[i].asid, rows[i].pid, rows[i].wuid, rows[i].cpu,
 		       rows[i].elapsed, rows[i].scl, rows[i].prio,
 		       rows[i].rgp);
 	rc = 0;
