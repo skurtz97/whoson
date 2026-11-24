@@ -12,7 +12,7 @@ SKURTZ   TSO/E OMVS   OWT O  0058 33554625    TSU08400   000.870  00.08.00   TSO
 
 `TYPE` is `TSO/E` for a session listed by `DISPLAY TS,A`, `SSH` for a session
 whose process is an `sshd`, and `TSO/E OMVS` for a TSO/E session that is also
-using an OMVS process — a TSO/E logon you can reach the POSIX side from. `PID`
+using an OMVS process - a TSO/E logon you can reach the POSIX side from. `PID`
 is the OMVS process id of that session, matched to the TSO/E session by
 address space id: an SSH session always has one, a TSO/E session only while it
 owns an OMVS process, and `NA` otherwise.
