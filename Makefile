@@ -18,10 +18,9 @@
 # the sidedeck as a DD and fail with IEW2763S. The library also has to be
 # reachable at run time through LIBPATH.
 #
-# EBCDIC is deliberate: the ssh channel converts terminal output from EBCDIC
-# to ASCII, and ZOAU returns its text in EBCDIC. Source stays ASCII-tagged;
-# the compiler turns literals into EBCDIC. Only opercmd's argument string is
-# converted to ASCII, in whoson.c.
+# ASCII character mode is deliberate: the text ZOAU returns and the text the
+# ssh channel carries are ASCII, so literals stay ASCII and the display fields
+# compare the way they are parsed. Source stays ASCII-tagged.
 #
 # POSIX make syntax: z/OS has IBM's make as well as GNU make. Avoid ?=,
 # which IBM's make does not accept; .PHONY is supported by both.
@@ -32,7 +31,7 @@ BINDIR    = $(PREFIX)/bin
 CC        = /usr/lpp/IBM/cnw/v2r1/openxl/bin/ibm-clang
 CPPFLAGS  = -D_XOPEN_SOURCE=600 -D_POSIX_C_SOURCE=200809L -D_ALL_SOURCE \
 	    -D_EXT
-CFLAGS    = -std=c17 -O2 -m64 -fzos-le-char-mode=ebcdic -Wall -Wextra \
+CFLAGS    = -std=c17 -O3 -m64 -fzos-le-char-mode=ascii -Wall -Wextra \
 	    -Wpedantic -Wshadow -Wconversion -I$(ZOAU_HOME)/include
 ZOAU_DLL  = $(ZOAU_HOME)/lib/zoautil.x
 CEEOPTS   = HEAPCHK(ON,1,32),RPTSTG(ON),FILETAG(AUTOCVT,AUTOTAG),POSIX(ON)
@@ -52,7 +51,7 @@ whoson: whoson.c
 install: whoson
 	mkdir -p $(BINDIR)
 	cp whoson $(BINDIR)/whoson
-	chmod 755 $(BINDIR)/whoson
+	chmod +x $(BINDIR)/whoson
 
 check: whoson
 	LIBPATH=$(ZOAU_HOME)/lib:$$LIBPATH \

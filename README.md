@@ -12,7 +12,7 @@ SKURTZ   TSO/E OMVS   OWT O  0058 33554625    TSU08400   000.870  00.08.00   TSO
 
 `TYPE` is `TSO/E` for a session listed by `DISPLAY TS,A`, `SSH` for a session
 whose process is an `sshd`, and `TSO/E OMVS` for a TSO/E session that is also
-using an OMVS process — a TSO/E logon you can reach the POSIX side from. `PID`
+using an OMVS process - a TSO/E logon you can reach the POSIX side from. `PID`
 is the OMVS process id of that session, matched to the TSO/E session by
 address space id: an SSH session always has one, a TSO/E session only while it
 owns an OMVS process, and `NA` otherwise.
@@ -33,7 +33,7 @@ its sidedeck imports `CODE64`.
 ## Build and run
 
 ```sh
-make            # builds ./whoson with ibm-clang, -m64, EBCDIC character mode
+make            # builds ./whoson with ibm-clang, -m64, ASCII character mode
 make check      # runs it under the CEE heap checker and storage report
 make install    # copies it to ~/.local/bin, creating it if needed
 ```
@@ -44,8 +44,9 @@ make install    # copies it to ~/.local/bin, creating it if needed
 make PREFIX=/usr/local install   # -> /usr/local/bin/whoson
 ```
 
-The sources are ASCII and stay that way; the compiler turns the literals into
-EBCDIC, which is what ZOAU returns and what the console display looks like.
+The sources are ASCII and stay that way; the build is in ASCII character mode
+(`-fzos-le-char-mode=ascii`). ZOAU hands its display back in EBCDIC, so
+`run_display` converts each response in place (`__e2a_l`) before it is parsed.
 
 ## How the data is produced
 
@@ -61,8 +62,8 @@ so the program does not shell out to `opercmd`:
   a daemon account and is dropped, which keeps started tasks out of the list.
 
 The vector's `opercmd` splits its argument string into `argv` without a shell,
-so the console command is passed quoted (`"D TS,A"`) as a single argument, in
-EBCDIC. Unquoted, the `D` is read as an option letter and the call fails with
+so the console command is passed quoted (`"D TS,A"`) as a single argument.
+Unquoted, the `D` is read as an option letter and the call fails with
 `opercmd`'s usage text and rc 2.
 
 ## License
