@@ -48,6 +48,15 @@ The sources are ASCII and stay that way; the build is in ASCII character mode
 (`-fzos-le-char-mode=ascii`). ZOAU hands its display back in EBCDIC, so
 `run_display` converts each response in place (`__e2a_l`) before it is parsed.
 
+Output does not go through `printf`. `emit()` writes every message and the
+table itself with `write(2)`, in the character set the destination expects:
+plain ASCII when the descriptor is a terminal, EBCDIC when it is a pipe, a
+socket or a file. CEE would convert stdio output from ASCII to EBCDIC on a
+terminal, and this system's sshd converts the other way for a command it runs
+without a tty, so neither `printf` nor a raw `write()` is correct on both
+paths. Help and error text go through the same `emit()`, so `whoson -h` and
+the usage message are readable whichever way they are run.
+
 ## How the data is produced
 
 Both displays go through the ZOAU shared library vector (`vector->opercmd`),
