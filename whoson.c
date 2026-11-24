@@ -14,8 +14,9 @@
  * The vector's opercmd splits its argument string into argv without a shell,
  * so the console command has to arrive as one argv element: it is passed in
  * double quotes, "D TS,A". Unquoted, the D is taken for an option letter and
- * the call fails with opercmd's usage text (rc 2). The arguments stay in
- * EBCDIC; an ASCII-converted copy fails with rc 1 and no message.
+ * the call fails with opercmd's usage text (rc 2). The program is built in
+ * ASCII character mode, so the argument and the returned text share one
+ * encoding.
  *
  * A TSO/E session reports its own CPU time (CT), elapsed time (ET), job id
  * (WUID/SCL/P) and region (RGP), so those columns need no second source. An
@@ -379,7 +380,8 @@ static int compare_rows(const void *a, const void *b)
 }
 
 /* Run one display; returns 0 and a NUL-terminated copy of stdout, or -1.
- * EBCDIC, and quoted so that the whole command is one argv element. */
+ * ASCII (the build's character mode), and quoted so that the whole command is
+ * one argv element. */
 static int run_display(zoautil_vector4_t *vector, const char *args,
 		       zoautil_options_t options, char **out)
 {
