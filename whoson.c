@@ -15,8 +15,8 @@
  * so the console command has to arrive as one argv element: it is passed in
  * double quotes, "D TS,A". Unquoted, the D is taken for an option letter and
  * the call fails with opercmd's usage text (rc 2). The program is built in
- * ASCII character mode, so the argument and the returned text share one
- * encoding.
+ * ASCII character mode and passes the command in that mode; opercmd returns
+ * the display itself in EBCDIC, so run_display converts each response.
  *
  * A TSO/E session reports its own CPU time (CT), elapsed time (ET), job id
  * (WUID/SCL/P) and region (RGP), so those columns need no second source. An
@@ -381,7 +381,8 @@ static int compare_rows(const void *a, const void *b)
 
 /* Run one display; returns 0 and a NUL-terminated copy of stdout, or -1.
  * ASCII (the build's character mode), and quoted so that the whole command is
- * one argv element. */
+ * one argv element. The display that comes back is EBCDIC, so it is converted
+ * to ASCII here before the parser sees it. */
 static int run_display(zoautil_vector4_t *vector, const char *args,
 		       zoautil_options_t options, char **out)
 {
@@ -402,9 +403,12 @@ static int run_display(zoautil_vector4_t *vector, const char *args,
 				"stderr_len = %d\n", response->cmd_rc,
 				response->stdout_len, response->stderr_len);
 		if (response != NULL && response->stderr_response != NULL &&
-		    response->stderr_len > 0)
+		    response->stderr_len > 0) {
+			__e2a_l(response->stderr_response,
+				(size_t)response->stderr_len);
 			fprintf(stderr, "%.*s\n", response->stderr_len,
 				response->stderr_response);
+		}
 		if (response != NULL)
 			free_response(response);
 		return -1;
@@ -421,6 +425,8 @@ static int run_display(zoautil_vector4_t *vector, const char *args,
 		return -1;
 	}
 	memcpy(*out, response->stdout_response, (size_t)response->stdout_len);
+	/* The display is EBCDIC; this program is ASCII. */
+	__e2a_l(*out, (size_t)response->stdout_len);
 	(*out)[response->stdout_len] = '\0';
 	free_response(response);
 	return 0;

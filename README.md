@@ -45,8 +45,8 @@ make PREFIX=/usr/local install   # -> /usr/local/bin/whoson
 ```
 
 The sources are ASCII and stay that way; the build is in ASCII character mode
-(`-fzos-le-char-mode=ascii`), which is what ZOAU returns and what the ssh
-channel carries.
+(`-fzos-le-char-mode=ascii`). ZOAU hands its display back in EBCDIC, so
+`run_display` converts each response in place (`__e2a_l`) before it is parsed.
 
 ## How the data is produced
 
