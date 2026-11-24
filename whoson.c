@@ -27,6 +27,7 @@
  */
 
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,7 @@
 #define NAME_LEN 16
 #define ASID_LEN 8
 #define TIME_LEN 16
+#define MSG_LEN 512
 #define WUID_LEN 12
 #define CPU_LEN 12
 #define SCL_LEN 8
@@ -76,12 +78,57 @@ struct row {
 	char pid[PID_LEN];
 };
 
+static const char usage_text[] = "usage: whoson\n"
+	"\n"
+	"List logged-on users with session type (TSO/E or SSH).\n"
+	"\n"
+	"Options:\n"
+	"  -h, --help  show this help and exit\n";
+
+/* Write a message in the character set its destination expects. CEE converts
+ * stdio output from ASCII to EBCDIC when the stream is a terminal, and sshd
+ * converts a pipe, socket or file the other way, so neither printf nor a raw
+ * write() is right on both: a terminal gets ASCII, everything else EBCDIC. */
+static void emit(int fd, char *buf, size_t len)
+{
+	if (!isatty(fd))
+		__a2e_l(buf, len);
+	while (len > 0) {
+		ssize_t n = write(fd, buf, len);
+
+		if (n <= 0)
+			return;
+		buf += n;
+		len -= (size_t)n;
+	}
+}
+
+static void emit_str(int fd, const char *text)
+{
+	char buf[MSG_LEN];
+	size_t len = strlen(text);
+
+	if (len >= sizeof(buf))
+		len = sizeof(buf) - 1;
+	memcpy(buf, text, len);
+	emit(fd, buf, len);
+}
+
+/* Report an error on stderr; messages are short enough for one line buffer. */
+static void error_msg(const char *fmt, ...)
+{
+	char text[MSG_LEN];
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsnprintf(text, sizeof(text), fmt, ap);
+	va_end(ap);
+	emit_str(STDERR_FILENO, text);
+}
+
 static int usage_error(const char *msg)
 {
-	fprintf(stderr, "whoson: %s\n", msg);
-	fprintf(stderr, "usage: whoson\n\n"
-			"List logged-on users with session type (TSO/E, "
-			"TSO/E OMVS, SSH).\n");
+	error_msg("whoson: %s\n%s", msg, usage_text);
 	return 2;
 }
 
@@ -398,31 +445,35 @@ static int run_display(zoautil_vector4_t *vector, const char *args,
 	len = strlen(parms);
 	rc = vector->opercmd(parms, len, &response, options);
 	if (rc != 0 || response == NULL) {
-		fprintf(stderr, "whoson: %s failed, rc = %d\n", args, rc);
+		error_msg("whoson: %s failed, rc = %d\n", args, rc);
 		if (response != NULL)
-			fprintf(stderr,
-				"whoson: cmd_rc = %d, stdout_len = %d, "
-				"stderr_len = %d\n", response->cmd_rc,
-				response->stdout_len, response->stderr_len);
+			error_msg("whoson: cmd_rc = %d, stdout_len = %d, "
+				  "stderr_len = %d\n", response->cmd_rc,
+				  response->stdout_len,
+				  response->stderr_len);
 		if (response != NULL && response->stderr_response != NULL &&
 		    response->stderr_len > 0) {
+			char text[MSG_LEN];
+
 			__e2a_l(response->stderr_response,
 				(size_t)response->stderr_len);
-			fprintf(stderr, "%.*s\n", response->stderr_len,
-				response->stderr_response);
+			snprintf(text, sizeof(text), "%.*s\n",
+				 response->stderr_len,
+				 response->stderr_response);
+			emit_str(STDERR_FILENO, text);
 		}
 		if (response != NULL)
 			free_response(response);
 		return -1;
 	}
 	if (response->stdout_response == NULL || response->stdout_len <= 0) {
-		fprintf(stderr, "whoson: %s returned no output\n", args);
+		error_msg("whoson: %s returned no output\n", args);
 		free_response(response);
 		return -1;
 	}
 	*out = malloc((size_t)response->stdout_len + 1);
 	if (*out == NULL) {
-		fprintf(stderr, "whoson: out of memory\n");
+		error_msg("whoson: out of memory\n");
 		free_response(response);
 		return -1;
 	}
@@ -454,9 +505,7 @@ int main(int argc, char *argv[])
 
 	if (argc > 1) {
 		if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-			printf("usage: whoson\n\n"
-			       "List logged-on users with session type "
-			       "(TSO/E, SSH).\n");
+			emit_str(STDOUT_FILENO, usage_text);
 			return 0;
 		}
 		return usage_error("unknown argument");
@@ -464,14 +513,13 @@ int main(int argc, char *argv[])
 
 	vrm = version();
 	if (vrm < VERSION_CURRENT) {
-		fprintf(stderr,
-			"whoson: ZOAU shared library is too old: 0x%x < 0x%x\n",
-			vrm, VERSION_CURRENT);
+		error_msg("whoson: ZOAU shared library is too old: 0x%x < 0x%x\n",
+			  vrm, VERSION_CURRENT);
 		return 1;
 	}
 	vector = init(vrm);
 	if (vector == NULL) {
-		fprintf(stderr, "whoson: cannot get the ZOAU vector table\n");
+		error_msg("whoson: cannot get the ZOAU vector table\n");
 		return 1;
 	}
 	if (run_display(vector, "D OMVS,A=ALL", options, &omvs_text) != 0)
@@ -502,16 +550,7 @@ int main(int argc, char *argv[])
 		                         rows[i].wuid, rows[i].cpu, rows[i].elapsed,
 		                         rows[i].scl, rows[i].prio, rows[i].rgp);
 
-	/* write(2), not printf: CEE converts stdio output from ASCII to EBCDIC
-	 * when stdout is a terminal, and sshd passes the pty to the client as is. */
-	for (const char *p = out; used > 0;) {
-		ssize_t n = write(STDOUT_FILENO, p, used);
-
-		if (n <= 0)
-			break;
-		p += n;
-		used -= (size_t)n;
-	}
+	emit(STDOUT_FILENO, out, used);
 	rc = 0;
 out:
 	free(ts_text);
