@@ -16,7 +16,9 @@
  * double quotes, "D TS,A". Unquoted, the D is taken for an option letter and
  * the call fails with opercmd's usage text (rc 2). The program is built in
  * ASCII character mode and passes the command in that mode; opercmd returns
- * the display itself in EBCDIC, so run_display converts each response.
+ * the display itself in EBCDIC, so run_display converts each response, and
+ * the finished table is converted back before printing: the console and the
+ * ssh exec channel both hand this program's output to the user as EBCDIC.
  *
  * A TSO/E session reports its own CPU time (CT), elapsed time (ET), job id
  * (WUID/SCL/P) and region (RGP), so those columns need no second source. An
@@ -76,6 +78,8 @@ struct row {
 
 static int usage_error(const char *msg)
 {
+	/* shortcut: this text goes out as ASCII, so it is mangled when piped,
+	 * unlike the table; convert it if the usage ever has to be readable. */
 	fprintf(stderr, "whoson: %s\n", msg);
 	fprintf(stderr, "usage: whoson\n\n"
 			"List logged-on users with session type (TSO/E, "
@@ -436,6 +440,10 @@ int main(int argc, char *argv[])
 {
 	static struct proc procs[MAX_PROCS];
 	static struct row rows[MAX_ROWS];
+	/* One output line is far under 128 bytes, and this holds the header plus
+	 * one per row, so the snprintf calls below cannot truncate. */
+	static char out[(MAX_ROWS + 1) * 128];
+	size_t used;
 	zoautil_options_t options = {
 		ZOAUTIL_EYECATCHER,
 		VERSION_CURRENT,
@@ -482,15 +490,21 @@ int main(int argc, char *argv[])
 	nrows = add_ssh_rows(procs, nprocs, rows, nrows, MAX_ROWS);
 	qsort(rows, (size_t)nrows, sizeof(rows[0]), compare_rows);
 
-	printf("%-8s %-12s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
-	       "USER", "TYPE", "STATUS", "ASID", "PID", "WUID", "CPU",
-	       "ELAPSED", "SCL", "PRIO", "RGP");
+	used = (size_t)snprintf(out, sizeof(out),
+				"%-8s %-12s %-6s %-4s %-11s %-10s %-8s %-10s "
+				"%-4s %-4s %-6s\n",
+				"USER", "TYPE", "STATUS", "ASID", "PID", "WUID",
+				"CPU", "ELAPSED", "SCL", "PRIO", "RGP");
 	for (int i = 0; i < nrows; i++)
-		printf("%-8s %-12s %-6s %-4s %-11s %-10s %-8s %-10s %-4s %-4s %-6s\n",
-		       rows[i].user, rows[i].session, rows[i].status,
-		       rows[i].asid, rows[i].pid, rows[i].wuid, rows[i].cpu,
-		       rows[i].elapsed, rows[i].scl, rows[i].prio,
-		       rows[i].rgp);
+		used += (size_t)snprintf(out + used, sizeof(out) - used,
+					 "%-8s %-12s %-6s %-4s %-11s %-10s %-8s "
+					 "%-10s %-4s %-4s %-6s\n",
+					 rows[i].user, rows[i].session, rows[i].status,
+					 rows[i].asid, rows[i].pid, rows[i].wuid,
+					 rows[i].cpu, rows[i].elapsed, rows[i].scl,
+					 rows[i].prio, rows[i].rgp);
+	__a2e_l(out, used);
+	fwrite(out, 1, used, stdout);
 	rc = 0;
 out:
 	free(ts_text);
