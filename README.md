@@ -46,9 +46,13 @@ make PREFIX=/usr/local install   # -> /usr/local/bin/whoson
 
 The sources are ASCII and stay that way; the build is in ASCII character mode
 (`-fzos-le-char-mode=ascii`). ZOAU hands its display back in EBCDIC, so
-`run_display` converts each response in place (`__e2a_l`) before it is parsed,
-and the finished table is converted back (`__a2e_l`) before it is printed,
-because the console and the ssh exec channel both expect EBCDIC.
+`run_display` converts each response in place (`__e2a_l`) before it is parsed.
+
+The table itself is written with `write(2)` rather than `printf`. CEE converts
+stdio output from ASCII to EBCDIC when stdout is a terminal, and the pty sshd
+hands the client gets no converting of its own, so `printf` would put EBCDIC
+on the screen while `write(2)` leaves the ASCII bytes alone. Keep the output
+on `write(2)` (or `fwrite` on a stream you have taken out of CEE's hands).
 
 ## How the data is produced
 
