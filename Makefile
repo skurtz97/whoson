@@ -52,6 +52,7 @@ whoson: whoson.c
 install: whoson
 	mkdir -p $(BINDIR)
 	cp whoson $(BINDIR)/whoson
+	chmod 755 $(BINDIR)/whoson
 
 check: whoson
 	LIBPATH=$(ZOAU_HOME)/lib:$$LIBPATH \
