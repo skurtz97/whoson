@@ -55,10 +55,16 @@ Releases ship the sources, not a binary: whoson links the ZOAU 64-bit DLL and
 only builds on z/OS. Unpack a release, build it, install it:
 
 ```sh
-gh release download --repo skurtz97/whoson --pattern 'whoson-*.tar.gz'
-tar xzf whoson-*.tar.gz && cd whoson-*/
-make && make install
+gh release download --repo skurtz97/whoson --pattern 'whoson-*'
+sha256sum -c whoson-*.tar.gz.sha256
+gzip -d whoson-*.tar.gz          # z/OS tar cannot gunzip one for you
+pax -r -f whoson-*.tar
+chtag -t -c ISO8859-1 -R whoson-*/   # pax untars as EBCDIC; make needs ASCII
+cd whoson-*/ && make && make install
 ```
+
+Without the `chtag`, IBM's make reads the Makefile as one line and stops with
+`FSUM8705 No target`.
 
 Or from a checkout, `make install` straight away.
 
