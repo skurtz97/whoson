@@ -23,6 +23,11 @@
 # ssh channel carries are ASCII, so literals stay ASCII and the display fields
 # compare the way they are parsed. Source stays ASCII-tagged.
 #
+# Every build is the release build: -O3, no -g, and a z/OS program object has
+# no symbol table to remove. strings finds no function names in the binary,
+# /bin/strip leaves its size alone, and the driver ignores -s as a
+# compile-only flag.
+#
 # POSIX make syntax: z/OS has IBM's make as well as GNU make. Avoid ?=,
 # which IBM's make does not accept; .PHONY is supported by both.
 
