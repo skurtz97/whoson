@@ -28,7 +28,7 @@
 ZOAU_HOME = /usr/lpp/IBM/zoautil
 PREFIX    = $(HOME)/.local
 BINDIR    = $(PREFIX)/bin
-CC        = /usr/lpp/IBM/cnw/v2r1/openxl/bin/ibm-clang
+CC        = /usr/lpp/IBM/cnw/v2r2/openxl/bin/ibm-clang
 CPPFLAGS  = -D_XOPEN_SOURCE=600 -D_POSIX_C_SOURCE=200809L -D_ALL_SOURCE \
 	    -D_EXT
 CFLAGS    = -std=c17 -O3 -m64 -fzos-le-char-mode=ascii -Wall -Wextra \
