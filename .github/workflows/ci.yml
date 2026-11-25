@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    env:
+      # Pinned on purpose: clang-format moves line breaks between releases, and
+      # a gate that goes red on a tool upgrade says nothing about the change.
+      # Bump this together with .clang-format.
+      CLANG_FORMAT_VERSION: 23.1.5
+    steps:
+      # v7.0.1, pinned to a commit: a tag can be repointed at other code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: pip install "clang-format==$CLANG_FORMAT_VERSION"
+      - run: clang-format --dry-run --Werror whoson.c
+
+  makefile:
+    name: makefile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # The build itself needs z/OS and the ZOAU headers, so this job only
+      # proves that the Makefile parses under GNU make and that each recipe is
+      # well formed.  -n runs nothing.
+      - run: make -n all
+      - run: make -n install check list
