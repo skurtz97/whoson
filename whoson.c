@@ -16,9 +16,11 @@
  * double quotes, "D TS,A". Unquoted, the D is taken for an option letter and
  * the call fails with opercmd's usage text (rc 2). The program is built in
  * ASCII character mode and passes the command in that mode; opercmd returns
- * the display itself in EBCDIC, so run_display converts each response. The
- * table leaves with write(2): CEE turns stdio output into EBCDIC on a
- * terminal, and sshd forwards that pty to the client untouched.
+ * the display in EBCDIC, or already in ASCII when _TAG_REDIR_OUT is txt, which
+ * every login shell here gets from /etc/profile. run_display converts only the
+ * response that needs converting. The table leaves with write(2): CEE turns
+ * stdio output into EBCDIC on a terminal, and sshd forwards that pty to the
+ * client untouched.
  *
  * A TSO/E session reports its own CPU time (CT), elapsed time (ET), job id
  * (WUID/SCL/P) and region (RGP), so those columns need no second source. An
@@ -428,10 +430,19 @@ static int compare_rows(const void *a, const void *b)
 	return strcmp(x->asid, y->asid);
 }
 
+/* Convert EBCDIC text to ASCII in place, leaving ASCII text alone: with
+ * _TAG_REDIR_OUT=txt in the environment opercmd answers in ASCII already.
+ * EBCDIC console text breaks lines with 0x15 and contains no '\n'. */
+static void to_ascii(char *buf, size_t len)
+{
+	if (memchr(buf, '\n', len) == NULL)
+		__e2a_l(buf, len);
+}
+
 /* Run one display; returns 0 and a NUL-terminated copy of stdout, or -1.
  * ASCII (the build's character mode), and quoted so that the whole command is
- * one argv element. The display that comes back is EBCDIC, so it is converted
- * to ASCII here before the parser sees it. */
+ * one argv element. The display is converted to ASCII here before the parser
+ * sees it. */
 static int run_display(zoautil_vector4_t *vector, const char *args,
 		       zoautil_options_t options, char **out)
 {
@@ -455,8 +466,8 @@ static int run_display(zoautil_vector4_t *vector, const char *args,
 		    response->stderr_len > 0) {
 			char text[MSG_LEN];
 
-			__e2a_l(response->stderr_response,
-				(size_t)response->stderr_len);
+			to_ascii(response->stderr_response,
+				 (size_t)response->stderr_len);
 			snprintf(text, sizeof(text), "%.*s\n",
 				 response->stderr_len,
 				 response->stderr_response);
@@ -478,8 +489,8 @@ static int run_display(zoautil_vector4_t *vector, const char *args,
 		return -1;
 	}
 	memcpy(*out, response->stdout_response, (size_t)response->stdout_len);
-	/* The display is EBCDIC; this program is ASCII. */
-	__e2a_l(*out, (size_t)response->stdout_len);
+	/* This program is ASCII whatever the display came back as. */
+	to_ascii(*out, (size_t)response->stdout_len);
 	(*out)[response->stdout_len] = '\0';
 	free_response(response);
 	return 0;
