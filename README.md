@@ -1,5 +1,9 @@
 # whoson
 
+[![ci](https://github.com/skurtz97/whoson/actions/workflows/ci.yml/badge.svg)](https://github.com/skurtz97/whoson/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/skurtz97/whoson?sort=semver)](https://github.com/skurtz97/whoson/releases)
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0%20OR%20BSD--2--Clause-blue)](LICENSE)
+
 Who is logged on to this z/OS system, and how: TSO/E or SSH, with the job id,
 CPU time, elapsed time, service class, priority, region size and process
 count.
@@ -26,6 +30,12 @@ the POSIX work a TSO/E session has running. Each fork gets its own address
 space on z/OS, which is why the count follows the pid tree rather than the
 ASID.
 
+```sh
+whoson            # the table
+whoson --version  # whoson 1.0.0
+whoson --help
+```
+
 ## Requirements
 
 - z/OS with ZOAU installed at `/usr/lpp/IBM/zoautil` (v1.3 or later: the
@@ -38,6 +48,19 @@ ASID.
 
 The build is 64-bit on purpose: the ZOAU shared library is a 64-bit DLL, so
 its sidedeck imports `CODE64`.
+
+## Install
+
+Releases ship the sources, not a binary: whoson links the ZOAU 64-bit DLL and
+only builds on z/OS. Unpack a release, build it, install it:
+
+```sh
+gh release download --repo skurtz97/whoson --pattern 'whoson-*.tar.gz'
+tar xzf whoson-*.tar.gz && cd whoson-*/
+make && make install
+```
+
+Or from a checkout, `make install` straight away.
 
 ## Build and run
 
@@ -95,6 +118,11 @@ The vector's `opercmd` splits its argument string into `argv` without a shell,
 so the console command is passed quoted (`"D TS,A"`) as a single argument.
 Unquoted, the `D` is read as an option letter and the call fails with
 `opercmd`'s usage text and rc 2.
+
+## Contributing
+
+Build rules, style and the release steps are in `CONTRIBUTING.md`; what changed
+in each release is in `CHANGELOG.md`.
 
 ## License
 

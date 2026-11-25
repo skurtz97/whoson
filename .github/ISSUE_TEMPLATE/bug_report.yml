@@ -1,0 +1,55 @@
+name: Bug report
+description: whoson printed the wrong thing, or nothing at all
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        whoson only reads two console displays, so the most useful thing you
+        can attach is what those displays said. On an operator console:
+        `D TS,A` for TSO/E sessions, `D OMVS,A=ALL` for processes.
+
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: Paste the whoson output, and the display it disagrees with.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: whoson --version
+      placeholder: whoson 1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: z/OS release and ZOAU level
+      description: The `uname -a` output, and the ZOAU level (`pkglist`,
+        or the install directory).
+      placeholder: z/OS 3.1, ZOAU 1.3.4
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: How it was built
+      options:
+        - make install, from a release tag
+        - make, from a git checkout
+        - something else (say so above)
+    validations:
+      required: true

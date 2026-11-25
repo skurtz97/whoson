@@ -34,11 +34,14 @@
 ZOAU_HOME = /usr/lpp/IBM/zoautil
 PREFIX    = $(HOME)/.local
 BINDIR    = $(PREFIX)/bin
+# The release workflow refuses a tag that does not match this, and the binary
+# reports it through --version.
+VERSION   = 1.0.0
 CCDIR     = /usr/lpp/IBM/cnw/v2r2/openxl/bin
 CC        = $(CCDIR)/ibm-clang
 LISTFMT   = $(CCDIR)/ibm-clang-listing-formatter
 CPPFLAGS  = -D_XOPEN_SOURCE=600 -D_POSIX_C_SOURCE=200809L -D_ALL_SOURCE \
-	    -D_EXT
+	    -D_EXT -DWHOSON_VERSION=\"$(VERSION)\"
 CFLAGS    = -std=c17 -O3 -m64 -fzos-le-char-mode=ascii -Wall -Wextra \
 	    -Wpedantic -Wshadow -Wconversion -I$(ZOAU_HOME)/include
 ZOAU_DLL  = $(ZOAU_HOME)/lib/zoautil.x
