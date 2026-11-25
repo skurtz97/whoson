@@ -1,13 +1,15 @@
 # whoson
 
 Who is logged on to this z/OS system, and how: TSO/E or SSH, with the job id,
-CPU time, elapsed time, service class, priority and region size.
+CPU time, elapsed time, service class, priority, region size and process
+count.
 
-```
+```text
 $ whoson
-USER     TYPE         STATUS ASID PID         WUID       CPU      ELAPSED    SCL  PRIO RGP
-SKURTZ   SSH          -      0033 67109440    NA         NA       04.21.51   NA   NA   NA
-SKURTZ   TSO/E OMVS   OWT O  0058 33554625    TSU08400   000.870  00.08.00   TSO  1    N/A
+USER     TYPE         STATUS ASID PID         WUID       CPU      ELAPSED    SCL  PRIO RGP    PROCS
+SKURTZ   SSH          -      0030 83886457    NA         000.000  04.00.02   NA   NA   NA     5
+SKURTZ   SSH          -      0070 67108897    NA         010.100  09.15.16   NA   NA   NA     1
+SKURTZ   TSO/E OMVS   OWT O  0058 33554625    TSU08400   000.870  00.08.00   TSO  1    N/A    1
 ```
 
 `TYPE` is `TSO/E` for a session listed by `DISPLAY TS,A`, `SSH` for a session
@@ -16,6 +18,13 @@ using an OMVS process - a TSO/E logon you can reach the POSIX side from. `PID`
 is the OMVS process id of that session, matched to the TSO/E session by
 address space id: an SSH session always has one, a TSO/E session only while it
 owns an OMVS process, and `NA` otherwise.
+
+`CPU` is seconds.milliseconds, whether it comes from the TSO/E record's `CT`
+or from `CT_SECS` on the session's OMVS process. `PROCS` counts the processes
+below the session's own: the sshd and the shell and whatever they started, or
+the POSIX work a TSO/E session has running. Each fork gets its own address
+space on z/OS, which is why the count follows the pid tree rather than the
+ASID.
 
 ## Requirements
 
@@ -35,8 +44,13 @@ its sidedeck imports `CODE64`.
 ```sh
 make            # builds ./whoson with ibm-clang, -m64, ASCII character mode
 make check      # runs it under the CEE heap checker and storage report
+make list       # builds, and writes a compiler listing to whoson.listing
 make install    # copies it to ~/.local/bin, creating it if needed
 ```
+
+`make list` turns on Open XL 2.2's listing (`-mzos-listing=json`) and renders
+it with `ibm-clang-listing-formatter`: the pseudo assembly with offsets,
+grouped by function, which is readable without a debugger.
 
 `PREFIX` defaults to `$(HOME)/.local`; pass your own to install elsewhere:
 
@@ -64,11 +78,15 @@ so the program does not shell out to `opercmd`:
 
 - `DISPLAY TS,A` lists TSO/E sessions: user, status, address space id, CPU
   time (`CT`), elapsed time (`ET`), job id (`WUID`), service class, priority
-  and region (`RGP`). `DISPLAY TSO,...` is not a valid command on this system,
-  and `DISPLAY TS,L` omits the timing fields, so `,A` is used.
+  and region (`RGP`). `USERID=` in the same record is the account, which is
+  not always the job name in the first column. `DISPLAY TSO,...` is not a
+  valid command on this system, and `DISPLAY TS,L` omits the timing fields,
+  so `,A` is used.
 - `DISPLAY OMVS,A=ALL` lists OMVS processes. An `sshd` process is a session;
   the account that owns the `sshd` process whose parent is the init process is
   a daemon account and is dropped, which keeps started tasks out of the list.
+  The row's `CT_SECS` and `PPID` give the session its CPU time and the rest of
+  its pid tree.
 
 The vector's `opercmd` splits its argument string into `argv` without a shell,
 so the console command is passed quoted (`"D TS,A"`) as a single argument.

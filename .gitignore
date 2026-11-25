@@ -1,3 +1,5 @@
 /whoson
 *.o
 CEEDUMP.*
+/whoson.json
+/whoson.listing
