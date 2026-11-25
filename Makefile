@@ -13,10 +13,11 @@
 # 64-bit is not negotiable: the ZOAU shared library is a 64-bit DLL and both
 # its sidedecks (/usr/lpp/IBM/zoautil/lib and /usr/lpp/IBM/zoau/v1r3/lib)
 # import CODE64, so -m64 is required even though a 31-bit program would start
-# faster. Use the IBM compiler directly, not the ~/.local/bin/ibm-clang
-# wrapper: the wrapper injects -Wl,dll,edit=no, which makes the binder treat
-# the sidedeck as a DD and fail with IEW2763S. The library also has to be
-# reachable at run time through LIBPATH.
+# faster. The compiler is pinned by absolute path because 2.1 and 2.2 are
+# both installed and PATH has carried each; this project builds with 2.2
+# (clang 21.1). A wrapper around the compiler that adds -Wl,dll,edit=no is
+# unusable: it makes the binder treat the sidedeck as a DD and fail with
+# IEW2763S. The library also has to be reachable at run time through LIBPATH.
 #
 # ASCII character mode is deliberate: the text ZOAU returns and the text the
 # ssh channel carries are ASCII, so literals stay ASCII and the display fields
@@ -28,7 +29,9 @@
 ZOAU_HOME = /usr/lpp/IBM/zoautil
 PREFIX    = $(HOME)/.local
 BINDIR    = $(PREFIX)/bin
-CC        = /usr/lpp/IBM/cnw/v2r2/openxl/bin/ibm-clang
+CCDIR     = /usr/lpp/IBM/cnw/v2r2/openxl/bin
+CC        = $(CCDIR)/ibm-clang
+LISTFMT   = $(CCDIR)/ibm-clang-listing-formatter
 CPPFLAGS  = -D_XOPEN_SOURCE=600 -D_POSIX_C_SOURCE=200809L -D_ALL_SOURCE \
 	    -D_EXT
 CFLAGS    = -std=c17 -O3 -m64 -fzos-le-char-mode=ascii -Wall -Wextra \
@@ -36,12 +39,20 @@ CFLAGS    = -std=c17 -O3 -m64 -fzos-le-char-mode=ascii -Wall -Wextra \
 ZOAU_DLL  = $(ZOAU_HOME)/lib/zoautil.x
 CEEOPTS   = HEAPCHK(ON,1,32),RPTSTG(ON),FILETAG(AUTOCVT,AUTOTAG),POSIX(ON)
 
-.PHONY: all install check clean
+.PHONY: all install check list clean
 
 all: whoson
 
 whoson: whoson.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ whoson.c $(ZOAU_DLL)
+
+# Open XL 2.2 can write a listing of the compile, which the formatter shipped
+# with it renders as pseudo assembly with offsets, grouped by function.  The
+# binary and the listing come out of the same compile, so they cannot
+# disagree; whoson.json is the intermediate the formatter reads.
+list:
+	$(CC) $(CPPFLAGS) $(CFLAGS) -mzos-listing=json -mzos-listing-file-name=whoson.json -o whoson whoson.c $(ZOAU_DLL)
+	$(LISTFMT) whoson.json > whoson.listing
 
 # CEE's heap checker catches overruns; RPTSTG prints the storage report at
 # exit, which is how leaks show up without a debugger.
@@ -58,4 +69,4 @@ check: whoson
 	    _CEE_RUNOPTS="$(CEEOPTS)" ./whoson
 
 clean:
-	rm -f whoson *.o
+	rm -f whoson *.o whoson.json whoson.listing
