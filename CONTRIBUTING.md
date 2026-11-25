@@ -43,8 +43,8 @@ syntax (`?=` is out), and let `make -n` stay free of side effects.
 1. Bump `VERSION` in the `Makefile` and add the entry to `CHANGELOG.md`.
 2. Merge, then tag `main` with `v<version>` and push the tag.
 3. `.github/workflows/release.yml` refuses a tag that disagrees with
-   `VERSION`, builds the source archive, attaches it with its sha256, and
-   writes the notes.
+   `VERSION`, takes the release notes from that `CHANGELOG.md` section, and
+   attaches the source archive with its sha256.
 
 There is no binary in a release: it links the ZOAU 64-bit DLL and only builds
 on z/OS, so a release ships the sources and the build instructions.
