@@ -43,6 +43,11 @@
 
 #define MAX_TOKENS 16
 #define MAX_ARGS 64
+
+/* Set by the Makefile from its VERSION, so the binary and the tag agree. */
+#ifndef WHOSON_VERSION
+#define WHOSON_VERSION "unknown"
+#endif
 #define MAX_PROCS 8192
 #define MAX_ROWS 256
 #define NAME_LEN 16
@@ -86,12 +91,13 @@ struct row {
 };
 
 static const char usage_text[] =
-    "usage: whoson\n"
+    "usage: whoson [--help | --version]\n"
     "\n"
     "List logged-on users with session type (TSO/E or SSH).\n"
     "\n"
     "Options:\n"
-    "  -h, --help  show this help and exit\n";
+    "  -h, --help     show this help and exit\n"
+    "  -V, --version  show the version and exit\n";
 
 /* Write a message in the character set its destination expects. CEE converts
  * stdio output from ASCII to EBCDIC when the stream is a terminal, and sshd
@@ -528,6 +534,10 @@ int main(int argc, char *argv[]) {
     if (argc > 1) {
         if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
             emit_str(STDOUT_FILENO, usage_text);
+            return 0;
+        }
+        if (strcmp(argv[1], "-V") == 0 || strcmp(argv[1], "--version") == 0) {
+            emit_str(STDOUT_FILENO, "whoson " WHOSON_VERSION "\n");
             return 0;
         }
         return usage_error("unknown argument");
