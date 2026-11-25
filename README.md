@@ -52,6 +52,9 @@ make install    # copies it to ~/.local/bin, creating it if needed
 it with `ibm-clang-listing-formatter`: the pseudo assembly with offsets,
 grouped by function, which is readable without a debugger.
 
+Every build is the release build: `-O3` and no `-g`. A z/OS program object
+carries no symbol table, so there is nothing to strip afterwards.
+
 `PREFIX` defaults to `$(HOME)/.local`; pass your own to install elsewhere:
 
 ```sh
