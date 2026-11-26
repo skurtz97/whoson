@@ -5,33 +5,29 @@
 #
 # whoson - build for z/OS with IBM Open XL C/C++ (ibm-clang).
 #
-# ZOAU is required: its shared library serves the opercmd display data.
-# $(ZOAU_HOME)/lib/zoautil.x is the sidedeck, not the DLL: it is the import
-# member the binder needs at link time. Override ZOAU_HOME on the command
-# line if ZOAU lives elsewhere.
+# No external library: session data is read straight out of common storage
+# (CVT -> ASVT -> ASCB), which needs no authorization, so there is no ZOAU
+# import member and no LIBPATH to set at run time.
 #
-# 64-bit is not negotiable: the ZOAU shared library is a 64-bit DLL and both
-# its sidedecks (/usr/lpp/IBM/zoautil/lib and /usr/lpp/IBM/zoau/v1r3/lib)
-# import CODE64, so -m64 is required even though a 31-bit program would start
-# faster. The compiler is pinned by absolute path because 2.1 and 2.2 are
-# both installed and PATH has carried each; this project builds with 2.2
-# (clang 21.1). A wrapper around the compiler that adds -Wl,dll,edit=no is
-# unusable: it makes the binder treat the sidedeck as a DD and fail with
-# IEW2763S. The library also has to be reachable at run time through LIBPATH.
+# -m64 is here for one reason: the ASCII character mode below is only
+# accepted by the 64-bit target. The default 31-bit target is standard
+# linkage (s390-ibm-zos-stdlink) and rejects it with "option
+# '-fzos-le-char-mode=ascii' is incompatible with target triple". Nothing in
+# the source needs 64 bits - the control block pointers are 32-bit - so if
+# the ASCII mode is ever dropped, -m64 goes with it.
 #
-# ASCII character mode is deliberate: the text ZOAU returns and the text the
-# ssh channel carries are ASCII, so literals stay ASCII and the display fields
-# compare the way they are parsed. Source stays ASCII-tagged.
+# ASCII character mode is deliberate: ps output and the ssh channel are
+# ASCII, so literals stay ASCII and the names copied out of EBCDIC storage
+# are converted once, in copy_name(). Source stays ASCII-tagged.
 #
 # Every build is the release build: -O3, no -g, and a z/OS program object has
-# no symbol table to remove. strings finds no function names in the binary,
-# /bin/strip leaves its size alone, and the driver ignores -s as a
-# compile-only flag.
+# no symbol table to remove.
 #
 # POSIX make syntax: z/OS has IBM's make as well as GNU make. Avoid ?=,
 # which IBM's make does not accept; .PHONY is supported by both.
 
-ZOAU_HOME = /usr/lpp/IBM/zoautil
+# ~/.local/bin is enough now that the program is not authorized; the install
+# target stays overridable for a system-wide /usr/local/sbin copy.
 PREFIX    = $(HOME)/.local
 BINDIR    = $(PREFIX)/bin
 # The release workflow refuses a tag that does not match this, and the binary
@@ -43,8 +39,7 @@ LISTFMT   = $(CCDIR)/ibm-clang-listing-formatter
 CPPFLAGS  = -D_XOPEN_SOURCE=600 -D_POSIX_C_SOURCE=200809L -D_ALL_SOURCE \
 	    -D_EXT -DWHOSON_VERSION=\"$(VERSION)\"
 CFLAGS    = -std=c17 -O3 -m64 -fzos-le-char-mode=ascii -Wall -Wextra \
-	    -Wpedantic -Wshadow -Wconversion -I$(ZOAU_HOME)/include
-ZOAU_DLL  = $(ZOAU_HOME)/lib/zoautil.x
+	    -Wpedantic -Wshadow -Wconversion
 CEEOPTS   = HEAPCHK(ON,1,32),RPTSTG(ON),FILETAG(AUTOCVT,AUTOTAG),POSIX(ON)
 
 .PHONY: all install check list clean
@@ -52,29 +47,25 @@ CEEOPTS   = HEAPCHK(ON,1,32),RPTSTG(ON),FILETAG(AUTOCVT,AUTOTAG),POSIX(ON)
 all: whoson
 
 whoson: whoson.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ whoson.c $(ZOAU_DLL)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ whoson.c
 
 # Open XL 2.2 can write a listing of the compile, which the formatter shipped
 # with it renders as pseudo assembly with offsets, grouped by function.  The
 # binary and the listing come out of the same compile, so they cannot
 # disagree; whoson.json is the intermediate the formatter reads.
 list:
-	$(CC) $(CPPFLAGS) $(CFLAGS) -mzos-listing=json -mzos-listing-file-name=whoson.json -o whoson whoson.c $(ZOAU_DLL)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -mzos-listing=json -mzos-listing-file-name=whoson.json -o whoson whoson.c
 	$(LISTFMT) whoson.json > whoson.listing
 
 # CEE's heap checker catches overruns; RPTSTG prints the storage report at
 # exit, which is how leaks show up without a debugger.
-# Installs into $(PREFIX)/bin, ~/.local/bin by default, which is on PATH
-# ahead of everything else, so a rebuilt whoson is the one that runs.  Pass
-# PREFIX to put it elsewhere: make PREFIX=/usr/local install
 install: whoson
 	mkdir -p $(BINDIR)
 	cp whoson $(BINDIR)/whoson
-	chmod +x $(BINDIR)/whoson
+	chmod 755 $(BINDIR)/whoson
 
 check: whoson
-	LIBPATH=$(ZOAU_HOME)/lib:$$LIBPATH \
-	    _CEE_RUNOPTS="$(CEEOPTS)" ./whoson
+	_CEE_RUNOPTS="$(CEEOPTS)" ./whoson
 
 clean:
 	rm -f whoson *.o whoson.json whoson.listing

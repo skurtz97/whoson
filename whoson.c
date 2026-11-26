@@ -4,30 +4,24 @@
  *
  * whoson - who is logged on to this z/OS system, and how (TSO/E or SSH).
  *
- * Session data comes from ZOAU's opercmd through the shared library vector
- * (no shelling out). TSO/E users come from DISPLAY TS,ALL, the only display
- * that lists them here: DISPLAY TSO,... is not a valid command on this
- * system. SSH users come from DISPLAY OMVS,A=ALL, where each session is an
- * "sshd" process; sshd runs its listener and the pre-authentication half of
- * every session under a daemon account, so that account is dropped.
+ * Sessions come from the address space control blocks, not from a subsystem
+ * or a console command: CVT (PSA+X'10') -> ASVT -> every allocated ASCB. That
+ * walk reads only common storage, which is mapped into every address space,
+ * so the program needs no APF authorization, no supervisor state and no key
+ * zero. ASCBJBNI holds the job name, ASCBJBNS the name the address space was
+ * started with - for a TSO/E session that is the logon procedure - and a
+ * non-zero ASCBTSB marks a TSO/E session.
  *
- * The vector's opercmd splits its argument string into argv without a shell,
- * so the console command has to arrive as one argv element: it is passed in
- * double quotes, "D TS,A". Unquoted, the D is taken for an option letter and
- * the call fails with opercmd's usage text (rc 2). The program is built in
- * ASCII character mode and passes the command in that mode; opercmd returns
- * the display in EBCDIC, or already in ASCII when _TAG_REDIR_OUT is txt, which
- * every login shell here gets from /etc/profile. run_display converts only the
- * response that needs converting. The table leaves with write(2): CEE turns
- * stdio output into EBCDIC on a terminal, and sshd forwards that pty to the
- * client untouched.
+ * Process details (pid, user, command, elapsed time) come from
+ * "ps -A -o pid,jobname,user,time,args", joined on the job name. That join is
+ * what tells an SSH login from a started task: sshd forks one address space
+ * per connection and the fork inherits the job name of the connection.
  *
- * A TSO/E session reports its own CPU time (CT), elapsed time (ET), job id
- * (WUID/SCL/P) and region (RGP), so those columns need no second source. An
- * SSH session has no such record: its CPU time comes from CT_SECS on its own
- * OMVS process, and its elapsed time is computed from that process's start
- * time. The process count follows the pid tree below the session, which says
- * how much work is running behind the login.
+ * The ASCB CPU accumulators, ASCBEJST and ASCBSRBT, count in 1024-microsecond
+ * units, so the CPU column is printed as seconds.
+ *
+ * Ctrl blocks are read through volatile pointers on purpose: nothing in this
+ * file may be cached across the walk, because the blocks change under it.
  */
 
 #include <inttypes.h>
@@ -36,68 +30,69 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
-#include <zoautil.h>
-
-#define MAX_TOKENS 16
-#define MAX_ARGS 64
-
-/* Set by the Makefile from its VERSION, so the binary and the tag agree. */
-#ifndef WHOSON_VERSION
-#define WHOSON_VERSION "unknown"
-#endif
+#define MAX_SPACES 1024
 #define MAX_PROCS 8192
-#define MAX_ROWS 256
-#define NAME_LEN 16
-#define ASID_LEN 8
-#define TIME_LEN 16
+#define MAX_TOKENS 16
 #define MSG_LEN 512
-#define WUID_LEN 12
-#define CPU_LEN 12
-#define SCL_LEN 8
-#define PRIO_LEN 4
-#define RGP_LEN 12
-#define PROCS_LEN 6
+#define NAME_LEN 16
+#define JOB_LEN 9
+#define ASID_LEN 8
 #define PID_LEN 12
-#define STATUS_LEN 12
-#define SESSION_LEN 12
+#define CPU_LEN 16
 #define CMD_LEN 256
+#define TIME_LEN 16
 
-struct proc {
+/* ASCB field offsets: mvs-data-areas, checked against IHAASCB here. */
+#define ASCB_ASID 0x24u
+#define ASCB_TSB 0x3Cu
+#define ASCB_EJST 0x40u
+#define ASCB_JBNI 0xACu
+#define ASCB_JBNS 0xB0u
+#define ASCB_SRBT 0xC8u
+
+/* CVTASVT, and the ASVT's own layout: the array of ASCB pointers starts well
+ * past the head of the block, and a set high bit marks a free ASID. */
+#define CVT_ASVT 556u
+#define ASVT_MAXU 0x204u
+#define ASVT_ENTY 0x210u
+#define ASCB_ACRONYM 0xC1E2C3C2u /* "ASCB" in EBCDIC */
+
+struct space {
+    unsigned asid;
+    int tso;
+    unsigned long long cpu;
+    char job[JOB_LEN];
+    char logon[JOB_LEN];
     char user[NAME_LEN];
-    char asid[ASID_LEN];
-    char start[TIME_LEN];
+    char type[NAME_LEN];
     int32_t pid;
-    int32_t ppid;
-    char cpu[CPU_LEN];
-    char cmd[CMD_LEN];
 };
 
-struct row {
+struct proc {
+    int32_t pid;
+    char job[JOB_LEN];
     char user[NAME_LEN];
-    char session[SESSION_LEN];
-    char status[STATUS_LEN];
-    char asid[ASID_LEN];
-    char wuid[WUID_LEN];
-    char cpu[CPU_LEN];
-    char elapsed[TIME_LEN];
-    char scl[SCL_LEN];
-    char prio[PRIO_LEN];
-    char rgp[RGP_LEN];
-    char procs[PROCS_LEN];
-    char pid[PID_LEN];
+    char time[TIME_LEN];
+    char cmd[CMD_LEN];
 };
 
 static const char usage_text[] =
     "usage: whoson [--help | --version]\n"
     "\n"
-    "List logged-on users with session type (TSO/E or SSH).\n"
+    "List the interactive sessions on this system: TSO/E, z/OSMF (which is a\n"
+    "TSO/E session started by the z/OSMF logon procedure) and SSH. Started\n"
+    "tasks, OMVS daemons and the processes inside a session are not listed.\n"
     "\n"
     "Options:\n"
     "  -h, --help     show this help and exit\n"
     "  -V, --version  show the version and exit\n";
+
+/* Set by the Makefile from its VERSION, so the binary and the tag agree. */
+#ifndef WHOSON_VERSION
+#define WHOSON_VERSION "unknown"
+#endif
 
 /* Write a message in the character set its destination expects. CEE converts
  * stdio output from ASCII to EBCDIC when the stream is a terminal, and sshd
@@ -137,460 +132,260 @@ static void error_msg(const char *fmt, ...) {
     emit_str(STDERR_FILENO, text);
 }
 
-static int usage_error(const char *msg) {
-    error_msg("whoson: %s\n%s", msg, usage_text);
-    return 2;
-}
+static void usage_error(const char *fmt, ...) {
+    char text[MSG_LEN];
+    va_list ap;
 
-/* Split a display line in place; returns the token count. */
-static int tokenize(char *line, char **tok) {
-    int n = 0;
-    char *p = line;
-
-    while (*p != '\0' && n < MAX_TOKENS) {
-        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
-            p++;
-        if (*p == '\0')
-            break;
-        tok[n++] = p;
-        while (*p != '\0' && *p != ' ' && *p != '\t' && *p != '\n' &&
-               *p != '\r')
-            p++;
-        if (*p != '\0')
-            *p++ = '\0';
-    }
-    return n;
-}
-
-/* "hh.mm.ss", the form opercmd prints start times in. */
-static int is_hms(const char *s) {
-    int digits = 0;
-    int dots = 0;
-
-    for (; *s != '\0'; s++) {
-        if (*s >= '0' && *s <= '9')
-            digits++;
-        else if (*s == '.')
-            dots++;
-        else
-            return 0;
-    }
-    return digits == 6 && dots == 2;
-}
-
-static int32_t hms_to_secs(const char *s) {
-    int32_t h = 0, m = 0, sec = 0;
-
-    if (sscanf(s, "%" SCNd32 ".%" SCNd32 ".%" SCNd32, &h, &m, &sec) != 3)
-        return -1;
-    return h * 3600 + m * 60 + sec;
-}
-
-static void format_elapsed(const char *start, char *out, size_t outlen) {
-    time_t now = time(NULL);
-    struct tm *tm = localtime(&now);
-    int32_t then, delta;
-
-    then = hms_to_secs(start);
-    if (then < 0 || tm == NULL) {
-        snprintf(out, outlen, "-");
-        return;
-    }
-    delta = (int32_t)tm->tm_hour * 3600 + (int32_t)tm->tm_min * 60 +
-            (int32_t)tm->tm_sec - then;
-    if (delta < 0)
-        delta += 86400;
-    snprintf(out, outlen, "%02" PRId32 ".%02" PRId32 ".%02" PRId32,
-             delta / 3600, delta % 3600 / 60, delta % 60);
+    va_start(ap, fmt);
+    vsnprintf(text, sizeof(text), fmt, ap);
+    va_end(ap);
+    emit_str(STDERR_FILENO, text);
+    emit_str(STDERR_FILENO, "\n");
+    emit_str(STDERR_FILENO, usage_text);
 }
 
 static void copy_field(char *dst, size_t dstlen, const char *src) {
     snprintf(dst, dstlen, "%s", src);
 }
 
-/* CPU times arrive in two shapes: DISPLAY TS reports "000.870S", seconds and
- * milliseconds with an S suffix, and DISPLAY OMVS reports CT_SECS as plain
- * seconds such as "669.3" or ".4". Both are printed as seconds.milliseconds
- * so the column reads one way. */
-static void fmt_cpu(const char *in, char *out, size_t outlen) {
-    int32_t ms;
+/* Copy the 8-byte name a control block points at. These pointers address
+ * common storage, so no cross-memory services are needed to read them. */
+static void copy_name(char *dst, uint32_t ptr) {
+    char raw[JOB_LEN];
+    int i;
 
-    if ((in[0] < '0' || in[0] > '9') && in[0] != '.') {
-        snprintf(out, outlen, "%s", in);
+    dst[0] = '\0';
+    if (ptr == 0)
         return;
+    for (i = 0; i < JOB_LEN - 1; i++)
+        raw[i] = ((const volatile char *)(uintptr_t)ptr)[i];
+    __e2a_l(raw, JOB_LEN - 1); /* names sit in storage as EBCDIC */
+    for (i = 0; i < JOB_LEN - 1; i++) {
+        if (raw[i] == '\0' || raw[i] == ' ')
+            break;
+        dst[i] = raw[i];
     }
-    ms = (int32_t)(atof(in) * 1000.0 + 0.5);
-    snprintf(out, outlen, "%03" PRId32 ".%03" PRId32, ms / 1000, ms % 1000);
+    dst[i] = '\0';
 }
 
-/* Parse DISPLAY OMVS,A=ALL: one 8-field row per process, each followed by an
- * indented detail line naming the command. */
-static int parse_omvs(char *text, struct proc *procs, int max) {
+/* Walk the ASVT and describe every allocated address space. */
+static int ascb_scan(struct space *sp, int max) {
+    uint32_t cvt = *(volatile uint32_t *)(uintptr_t)16;
+    uint32_t asvt;
+    uint32_t entries;
+    unsigned maxu;
+    unsigned i;
     int n = 0;
-    char *line = text;
-    char *tok[MAX_TOKENS];
-    char raw[512];
-    char work[512];
 
-    while (line != NULL && n < max) {
-        char *next = strchr(line, '\n');
-        int count;
-
-        if (next != NULL)
-            *next++ = '\0';
-        snprintf(raw, sizeof(raw), "%s", line);
-        snprintf(work, sizeof(work), "%s", line);
-        count = tokenize(work, tok);
-        if (count == 8 && is_hms(tok[6]) && strchr(tok[5], '-') != NULL) {
-            copy_field(procs[n].user, NAME_LEN, tok[0]);
-            copy_field(procs[n].asid, ASID_LEN, tok[2]);
-            copy_field(procs[n].start, TIME_LEN, tok[6]);
-            procs[n].pid = (int32_t)strtol(tok[3], NULL, 10);
-            procs[n].ppid = (int32_t)strtol(tok[4], NULL, 10);
-            fmt_cpu(tok[7], procs[n].cpu, CPU_LEN);
-            procs[n].cmd[0] = '\0';
-            n++;
-        } else if (n > 0) {
-            char *cmd = strstr(raw, "CMD=");
-
-            if (cmd != NULL)
-                copy_field(procs[n - 1].cmd, CMD_LEN, cmd + 4);
-        }
-        line = next;
-    }
-    return n;
-}
-
-/* The account that owns an sshd process whose parent is the init process owns
- * the listener, and with it the pre-authentication half of every session. */
-static int is_daemon(const struct proc *procs, int n, const char *user) {
-    for (int i = 0; i < n; i++)
-        if (procs[i].ppid == 1 && strstr(procs[i].cmd, "sshd") != NULL &&
-            strcmp(procs[i].user, user) == 0)
-            return 1;
-    return 0;
-}
-
-/* Elapsed times arrive in two shapes too: "01.22.42" is hours.minutes
- * .seconds, and "019.705S" is seconds.milliseconds with an S suffix, which is
- * what a session younger than an hour reports. Normalise the latter. */
-static void fmt_clock(const char *in, char *out, size_t outlen) {
-    size_t len = strlen(in);
-
-    if (len == 0 || in[len - 1] != 'S') {
-        snprintf(out, outlen, "%s", in);
-        return;
-    }
-    {
-        double secs = atof(in);
-        int32_t whole = (int32_t)secs;
-
-        snprintf(out, outlen, "%02" PRId32 ".%02" PRId32 ".%02" PRId32,
-                 whole / 3600, whole % 3600 / 60, whole % 60);
-    }
-}
-
-/* Parse DISPLAY TS,A: one record per TSO/E user, five lines long --
- *
- *   SKURTZ   IN   O  A=0058   PER=NO   SMC=000  PGN=N/A  DMN=N/A  AFF=NONE
- *                   CT=000.458S  ET=019.705S
- *                   WUID=TSU08400
- *                   WKL=TSO      SCL=TSO      P=1
- *                   RGP=N/A      SRVR=NO  QSC=NO
- *
- * The number of words before A= varies ("OWT", "IN O", "WTOR S"), so the
- * record is found by looking for the A= token, and everything between the
- * user id and it is the status. Every field after that belongs to the record
- * above it.
- */
-static int parse_ts(char *text, struct row *rows, int max) {
-    int n = 0;
-    char *line = text;
-    char *tok[MAX_TOKENS];
-    char work[512];
-
-    while (line != NULL && n < max) {
-        char *next = strchr(line, '\n');
-        int count;
-        int aat = -1;
-
-        if (next != NULL)
-            *next++ = '\0';
-        snprintf(work, sizeof(work), "%s", line);
-        count = tokenize(work, tok);
-        for (int i = 2; i < count; i++)
-            if (strncmp(tok[i], "A=", 2) == 0) {
-                aat = i;
-                break;
-            }
-        if (aat > 0) {
-            struct row *r = &rows[n];
-
-            memset(r, 0, sizeof(*r));
-            copy_field(r->user, NAME_LEN, tok[0]);
-            copy_field(r->session, sizeof(r->session), "TSO/E");
-            r->status[0] = '\0';
-            for (int i = 1; i < aat; i++) {
-                size_t used = strlen(r->status);
-
-                snprintf(r->status + used, STATUS_LEN - used, "%s%s",
-                         used > 0 ? " " : "", tok[i]);
-            }
-            copy_field(r->asid, ASID_LEN, tok[aat] + 2);
-            copy_field(r->cpu, CPU_LEN, "NA");
-            copy_field(r->elapsed, TIME_LEN, "NA");
-            copy_field(r->scl, SCL_LEN, "NA");
-            copy_field(r->prio, PRIO_LEN, "NA");
-            copy_field(r->rgp, RGP_LEN, "NA");
-            n++;
-        }
-        if (n == 0) {
-            line = next;
-            continue;
-        }
-        {
-            struct row *r = &rows[n - 1];
-
-            for (int i = 0; i < count; i++) {
-                if (strncmp(tok[i], "CT=", 3) == 0) {
-                    fmt_cpu(tok[i] + 3, r->cpu, CPU_LEN);
-                } else if (strncmp(tok[i], "USERID=", 7) == 0) {
-                    /* The first field is the job name; this one is the
-                     * account, and the two can differ. */
-                    copy_field(r->user, NAME_LEN, tok[i] + 7);
-                } else if (strncmp(tok[i], "ET=", 3) == 0) {
-                    fmt_clock(tok[i] + 3, r->elapsed, TIME_LEN);
-                } else if (strncmp(tok[i], "WUID=", 5) == 0) {
-                    copy_field(r->wuid, WUID_LEN, tok[i] + 5);
-                } else if (strncmp(tok[i], "SCL=", 4) == 0) {
-                    copy_field(r->scl, SCL_LEN, tok[i] + 4);
-                } else if (strncmp(tok[i], "P=", 2) == 0) {
-                    copy_field(r->prio, PRIO_LEN, tok[i] + 2);
-                } else if (strncmp(tok[i], "RGP=", 4) == 0) {
-                    copy_field(r->rgp, RGP_LEN, tok[i] + 4);
-                }
-            }
-        }
-        line = next;
-    }
-    return n;
-}
-
-/* PID of the OMVS process in this address space, or "NA" for a TSO/E
- * session that has no OMVS process at all.  A session that has one is
- * labelled "TSO/E OMVS", so it is obvious that a TSO/E logon is behind it. */
-static void set_pid(const struct proc *procs, int nprocs, struct row *r) {
-    for (int i = 0; i < nprocs; i++) {
-        if (strcmp(procs[i].asid, r->asid) == 0) {
-            snprintf(r->pid, PID_LEN, "%" PRId32, procs[i].pid);
-            copy_field(r->session, sizeof(r->session), "TSO/E OMVS");
-            return;
-        }
-    }
-    copy_field(r->pid, PID_LEN, "NA");
-}
-
-static int add_ssh_rows(const struct proc *procs, int nprocs, struct row *rows,
-                        int nrows, int max) {
-    for (int i = 0; i < nprocs && nrows < max; i++) {
-        if (strstr(procs[i].cmd, "sshd") == NULL)
-            continue;
-        if (is_daemon(procs, nprocs, procs[i].user))
-            continue;
-        copy_field(rows[nrows].user, NAME_LEN, procs[i].user);
-        copy_field(rows[nrows].session, sizeof(rows[nrows].session), "SSH");
-        copy_field(rows[nrows].status, sizeof(rows[nrows].status), "-");
-        copy_field(rows[nrows].asid, ASID_LEN, procs[i].asid);
-        copy_field(rows[nrows].wuid, WUID_LEN, "NA");
-        copy_field(rows[nrows].cpu, CPU_LEN, procs[i].cpu);
-        copy_field(rows[nrows].scl, SCL_LEN, "NA");
-        copy_field(rows[nrows].prio, PRIO_LEN, "NA");
-        copy_field(rows[nrows].rgp, RGP_LEN, "NA");
-        snprintf(rows[nrows].pid, PID_LEN, "%" PRId32, procs[i].pid);
-        format_elapsed(procs[i].start, rows[nrows].elapsed, TIME_LEN);
-        nrows++;
-    }
-    return nrows;
-}
-
-/* How many processes the session is running: its own OMVS process and every
- * child below it. Each fork gets its own address space on z/OS, so the
- * session's shell is not in the sshd's ASID and cannot be found that way. */
-static int32_t parent_of(const struct proc *procs, int nprocs, int32_t pid) {
-    for (int i = 0; i < nprocs; i++)
-        if (procs[i].pid == pid)
-            return procs[i].ppid;
-    return -1;
-}
-
-static int count_procs(const struct proc *procs, int nprocs, int32_t root) {
-    int count = 0;
-
-    if (root <= 0)
+    if (cvt == 0)
         return 0;
-    for (int i = 0; i < nprocs; i++) {
-        int32_t pid = procs[i].pid;
+    asvt = *(volatile uint32_t *)(uintptr_t)(cvt + CVT_ASVT);
+    if (asvt == 0)
+        return 0;
+    maxu = *(volatile uint32_t *)(uintptr_t)(asvt + ASVT_MAXU) & 0xFFFFu;
+    entries = asvt + ASVT_ENTY;
+    for (i = 0; i < maxu && n < max; i++) {
+        uint32_t ent = *(volatile uint32_t *)(uintptr_t)(entries + 4u * i);
+        uint32_t ascb;
 
-        for (int hops = 0; hops < nprocs && pid > 0; hops++) {
-            if (pid == root) {
-                count++;
+        if ((ent & 0x80000000u) != 0)
+            continue;
+        ascb = ent & 0x7FFFFFFFu;
+        if (*(volatile uint32_t *)(uintptr_t)ascb != ASCB_ACRONYM)
+            continue;
+        sp[n].asid = *(volatile uint16_t *)(uintptr_t)(ascb + ASCB_ASID);
+        sp[n].tso = *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_TSB) != 0;
+        sp[n].cpu =
+            *(volatile unsigned long long *)(uintptr_t)(ascb + ASCB_EJST) +
+            *(volatile unsigned long long *)(uintptr_t)(ascb + ASCB_SRBT);
+        copy_name(sp[n].job,
+                  *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_JBNI));
+        copy_name(sp[n].logon,
+                  *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_JBNS));
+        if (sp[n].job[0] == '\0')
+            copy_field(sp[n].job, JOB_LEN, sp[n].logon);
+        sp[n].user[0] = '\0';
+        sp[n].type[0] = '\0';
+        sp[n].pid = 0;
+        n++;
+    }
+    return n;
+}
+
+/* Read the process table. ps prints one line per process as
+ * "pid jobname user time command", so the job name joins to an address
+ * space by name and the command tells an sshd session from the listener. */
+static int ps_scan(struct proc *pr, int max) {
+    FILE *fp;
+    char line[512];
+    int n = 0;
+
+    fp = popen("ps -A -o pid,jobname,user,time,args", "r");
+    if (fp == NULL)
+        return 0;
+    while (fgets(line, sizeof(line), fp) != NULL && n < max) {
+        int32_t pid;
+        char job[JOB_LEN];
+        char user[NAME_LEN];
+        char tm[TIME_LEN];
+
+        job[0] = '\0';
+        user[0] = '\0';
+        tm[0] = '\0';
+        pr[n].cmd[0] = '\0';
+        if (sscanf(line, "%" SCNd32 " %8s %15s %15s %255[^\n]", &pid, job, user,
+                   tm, pr[n].cmd) < 4)
+            continue;
+        if (strcmp(job, "JOBNAME") == 0)
+            continue;
+        pr[n].pid = pid;
+        copy_field(pr[n].job, JOB_LEN, job);
+        copy_field(pr[n].user, NAME_LEN, user);
+        copy_field(pr[n].time, TIME_LEN, tm);
+        n++;
+    }
+    pclose(fp);
+    return n;
+}
+
+/* An sshd started with -R serves one connection; the listener runs without
+ * it, so the flag is what separates a session from the daemon. */
+static int is_ssh_session(const struct proc *p) {
+    if (strstr(p->cmd, "sshd") == NULL || strstr(p->cmd, " -R") == NULL)
+        return 0;
+    /* An unauthenticated connection runs as a daemon account; it is not a
+     * session until someone has logged on. */
+    return strcmp(p->user, "BPXROOT") != 0 && strcmp(p->user, "root") != 0;
+}
+
+/* TSO/E sessions come from the ASCB walk, SSH sessions from the process
+ * table. Everything else - started tasks, OMVS daemons, fork children of a
+ * shell - is not a session and stays out of the list. */
+static int collect(struct space *rows, int max, const struct space *sp, int nsp,
+                   const struct proc *pr, int npr) {
+    int n = 0;
+    int i;
+
+    for (i = 0; i < nsp && n < max; i++) {
+        if (!sp[i].tso)
+            continue;
+        rows[n] = sp[i];
+        copy_field(rows[n].type, NAME_LEN,
+                   strncmp(sp[i].logon, "IZU", 3) == 0 ? "z/OSMF" : "TSO/E");
+        copy_field(rows[n].user, NAME_LEN, sp[i].job);
+        rows[n].pid = -1;
+        n++;
+    }
+    for (i = 0; i < npr && n < max; i++) {
+        unsigned asid = 0;
+        unsigned long long cpu = 0;
+        int k;
+        int dup = 0;
+
+        if (!is_ssh_session(&pr[i]))
+            continue;
+        for (k = 0; k < nsp; k++) {
+            if (strcmp(sp[k].job, pr[i].job) == 0) {
+                asid = sp[k].asid;
+                cpu = sp[k].cpu;
                 break;
             }
-            pid = parent_of(procs, nprocs, pid);
         }
+        for (k = 0; k < n; k++) {
+            if (asid != 0 && rows[k].asid == asid)
+                dup = 1;
+        }
+        if (dup)
+            continue;
+        rows[n].asid = asid;
+        rows[n].cpu = cpu;
+        rows[n].pid = pr[i].pid;
+        copy_field(rows[n].type, NAME_LEN, "SSH");
+        copy_field(rows[n].job, JOB_LEN, pr[i].job);
+        copy_field(rows[n].user, NAME_LEN, pr[i].user);
+        copy_field(rows[n].logon, JOB_LEN, "-");
+        n++;
     }
-    return count;
+    return n;
 }
 
 static int compare_rows(const void *a, const void *b) {
-    const struct row *x = a;
-    const struct row *y = b;
+    const struct space *x = a;
+    const struct space *y = b;
     int cmp = strcmp(x->user, y->user);
 
     if (cmp != 0)
         return cmp;
-    cmp = strcmp(x->session, y->session);
-    if (cmp != 0)
-        return cmp;
-    return strcmp(x->asid, y->asid);
-}
-
-/* Convert EBCDIC text to ASCII in place, leaving ASCII text alone: with
- * _TAG_REDIR_OUT=txt in the environment opercmd answers in ASCII already.
- * EBCDIC console text breaks lines with 0x15 and contains no '\n'. */
-static void to_ascii(char *buf, size_t len) {
-    if (memchr(buf, '\n', len) == NULL)
-        __e2a_l(buf, len);
-}
-
-/* Run one display; returns 0 and a NUL-terminated copy of stdout, or -1.
- * ASCII (the build's character mode), and quoted so that the whole command is
- * one argv element. The display is converted to ASCII here before the parser
- * sees it. */
-static int run_display(zoautil_vector4_t *vector, const char *args,
-                       zoautil_options_t options, char **out) {
-    zoau_response *response = NULL;
-    char parms[MAX_ARGS];
-    size_t len;
-    int rc;
-
-    *out = NULL;
-    snprintf(parms, sizeof(parms), "\"%s\"", args);
-    len = strlen(parms);
-    rc = vector->opercmd(parms, len, &response, options);
-    if (rc != 0 || response == NULL) {
-        error_msg("whoson: %s failed, rc = %d\n", args, rc);
-        if (response != NULL)
-            error_msg("whoson: cmd_rc = %d, stdout_len = %d, "
-                      "stderr_len = %d\n",
-                      response->cmd_rc, response->stdout_len,
-                      response->stderr_len);
-        if (response != NULL && response->stderr_response != NULL &&
-            response->stderr_len > 0) {
-            char text[MSG_LEN];
-
-            to_ascii(response->stderr_response, (size_t)response->stderr_len);
-            snprintf(text, sizeof(text), "%.*s\n", response->stderr_len,
-                     response->stderr_response);
-            emit_str(STDERR_FILENO, text);
-        }
-        if (response != NULL)
-            free_response(response);
-        return -1;
-    }
-    if (response->stdout_response == NULL || response->stdout_len <= 0) {
-        error_msg("whoson: %s returned no output\n", args);
-        free_response(response);
-        return -1;
-    }
-    *out = malloc((size_t)response->stdout_len + 1);
-    if (*out == NULL) {
-        error_msg("whoson: out of memory\n");
-        free_response(response);
-        return -1;
-    }
-    memcpy(*out, response->stdout_response, (size_t)response->stdout_len);
-    /* This program is ASCII whatever the display came back as. */
-    to_ascii(*out, (size_t)response->stdout_len);
-    (*out)[response->stdout_len] = '\0';
-    free_response(response);
+    if (x->asid != y->asid)
+        return x->asid < y->asid ? -1 : 1;
     return 0;
 }
 
-int main(int argc, char *argv[]) {
-    static struct proc procs[MAX_PROCS];
-    static struct row rows[MAX_ROWS];
-    static char out[(MAX_ROWS + 1) * 128];
-    size_t used;
-    zoautil_options_t options = {ZOAUTIL_EYECATCHER, VERSION_CURRENT,
-                                 FORMAT_TEXT};
-    zoautil_vector4_t *vector;
-    char *ts_text = NULL;
-    char *omvs_text = NULL;
-    unsigned int vrm;
-    int nprocs, nrows = 0;
-    int rc = 1;
+/* CPU counters arrive in 1024-microsecond units; print them as h:mm:ss. */
+static void fmt_cpu(unsigned long long units, char *out, size_t outlen) {
+    unsigned long long secs = (units * 1024ULL + 500000ULL) / 1000000ULL;
 
-    if (argc > 1) {
-        if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+    snprintf(out, outlen, "%llu:%02llu:%02llu", secs / 3600ULL,
+             secs % 3600ULL / 60ULL, secs % 60ULL);
+}
+
+static void print_rows(const struct space *sp, int n) {
+    char line[MSG_LEN];
+    char cpu[CPU_LEN];
+    char asid[ASID_LEN];
+    char pid[PID_LEN];
+    int i;
+
+    snprintf(line, sizeof(line),
+             "%-8.8s %-6.6s %-4.4s %-8.8s %-10.10s %-8.8s %s\n", "USER", "TYPE",
+             "ASID", "JOBNAME", "LOGONPROC", "PID", "CPU");
+    emit_str(STDOUT_FILENO, line);
+    for (i = 0; i < n; i++) {
+        fmt_cpu(sp[i].cpu, cpu, sizeof(cpu));
+        if (sp[i].asid != 0)
+            snprintf(asid, sizeof(asid), "%04X", sp[i].asid);
+        else
+            copy_field(asid, sizeof(asid), "-");
+        if (sp[i].pid > 0)
+            snprintf(pid, sizeof(pid), "%" PRId32, sp[i].pid);
+        else
+            copy_field(pid, sizeof(pid), "-");
+        snprintf(line, sizeof(line),
+                 "%-8.8s %-6.6s %-4.4s %-8.8s %-10.10s %-8.8s %s\n", sp[i].user,
+                 sp[i].type, asid, sp[i].job, sp[i].logon, pid, cpu);
+        emit_str(STDOUT_FILENO, line);
+    }
+}
+
+int main(int argc, char **argv) {
+    static struct space spaces[MAX_SPACES];
+    static struct space rows[MAX_SPACES];
+    static struct proc procs[MAX_PROCS];
+    int nsp;
+    int npr;
+    int arg;
+
+    for (arg = 1; arg < argc; arg++) {
+        if (strcmp(argv[arg], "-h") == 0 || strcmp(argv[arg], "--help") == 0) {
             emit_str(STDOUT_FILENO, usage_text);
             return 0;
-        }
-        if (strcmp(argv[1], "-V") == 0 || strcmp(argv[1], "--version") == 0) {
+        } else if (strcmp(argv[arg], "-V") == 0 ||
+                   strcmp(argv[arg], "--version") == 0) {
             emit_str(STDOUT_FILENO, "whoson " WHOSON_VERSION "\n");
             return 0;
+        } else {
+            usage_error("whoson: unknown argument: %s", argv[arg]);
+            return 1;
         }
-        return usage_error("unknown argument");
     }
-
-    vrm = version();
-    if (vrm < VERSION_CURRENT) {
-        error_msg("whoson: ZOAU shared library is too old: 0x%x < 0x%x\n", vrm,
-                  VERSION_CURRENT);
+    nsp = ascb_scan(spaces, MAX_SPACES);
+    if (nsp == 0) {
+        error_msg("whoson: no address spaces found\n");
         return 1;
     }
-    vector = init(vrm);
-    if (vector == NULL) {
-        error_msg("whoson: cannot get the ZOAU vector table\n");
-        return 1;
-    }
-    if (run_display(vector, "D OMVS,A=ALL", options, &omvs_text) != 0)
-        goto out;
-    if (run_display(vector, "D TS,A", options, &ts_text) != 0)
-        goto out;
-
-    nprocs = parse_omvs(omvs_text, procs, MAX_PROCS);
-    nrows = parse_ts(ts_text, rows, MAX_ROWS);
-    for (int i = 0; i < nrows; i++)
-        set_pid(procs, nprocs, &rows[i]);
-    nrows = add_ssh_rows(procs, nprocs, rows, nrows, MAX_ROWS);
-    for (int i = 0; i < nrows; i++)
-        snprintf(
-            rows[i].procs, PROCS_LEN, "%d",
-            count_procs(procs, nprocs, (int32_t)strtol(rows[i].pid, NULL, 10)));
-    qsort(rows, (size_t)nrows, sizeof(rows[0]), compare_rows);
-
-    /* One line is far under 128 bytes, and the buffer holds the header plus
-     * one per row, so these snprintf calls cannot truncate. */
-    used = (size_t)snprintf(out, sizeof(out),
-                            "%-8s %-12s %-6s %-4s %-11s %-10s %-8s %-10s "
-                            "%-4s %-4s %-6s %-5s\n",
-                            "USER", "TYPE", "STATUS", "ASID", "PID", "WUID",
-                            "CPU", "ELAPSED", "SCL", "PRIO", "RGP", "PROCS");
-    for (int i = 0; i < nrows; i++)
-        used += (size_t)snprintf(out + used, sizeof(out) - used,
-                                 "%-8s %-12s %-6s %-4s %-11s %-10s "
-                                 "%-8s %-10s %-4s %-4s %-6s %-5s\n",
-                                 rows[i].user, rows[i].session, rows[i].status,
-                                 rows[i].asid, rows[i].pid, rows[i].wuid,
-                                 rows[i].cpu, rows[i].elapsed, rows[i].scl,
-                                 rows[i].prio, rows[i].rgp, rows[i].procs);
-
-    emit(STDOUT_FILENO, out, used);
-    rc = 0;
-out:
-    free(ts_text);
-    free(omvs_text);
-    term(vector);
-    return rc;
+    npr = ps_scan(procs, MAX_PROCS);
+    nsp = collect(rows, MAX_SPACES, spaces, nsp, procs, npr);
+    qsort(rows, (size_t)nsp, sizeof(rows[0]), compare_rows);
+    print_rows(rows, nsp);
+    return 0;
 }

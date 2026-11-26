@@ -4,31 +4,45 @@
 [![release](https://img.shields.io/github/v/release/skurtz97/whoson?sort=semver)](https://github.com/skurtz97/whoson/releases)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0%20OR%20BSD--2--Clause-blue)](LICENSE)
 
-Who is logged on to this z/OS system, and how: TSO/E or SSH, with the job id,
-CPU time, elapsed time, service class, priority, region size and process
-count.
+Who is logged on to this z/OS system: the interactive sessions, one row each,
+with the address space, the job name, the name the address space was started
+with and its CPU time.
 
 ```text
 $ whoson
-USER     TYPE         STATUS ASID PID         WUID       CPU      ELAPSED    SCL  PRIO RGP    PROCS
-SKURTZ   SSH          -      0030 83886457    NA         000.000  04.00.02   NA   NA   NA     5
-SKURTZ   SSH          -      0070 67108897    NA         010.100  09.15.16   NA   NA   NA     1
-SKURTZ   TSO/E OMVS   OWT O  0058 33554625    TSU08400   000.870  00.08.00   TSO  1    N/A    1
+USER     TYPE   ASID JOBNAME  LOGONPROC  PID      CPU
+CBT002   TSO/E  0046 CBT002   CBT002     -        499:34:54
+SKURTZ   SSH    002B SSHD16   -          83886753 4:53:34
+SKURTZ   TSO/E  0060 SKURTZ   SKURTZ     -        68:54:38
 ```
 
-`TYPE` is `TSO/E` for a session listed by `DISPLAY TS,A`, `SSH` for a session
-whose process is an `sshd`, and `TSO/E OMVS` for a TSO/E session that is also
-using an OMVS process - a TSO/E logon you can reach the POSIX side from. `PID`
-is the OMVS process id of that session, matched to the TSO/E session by
-address space id: an SSH session always has one, a TSO/E session only while it
-owns an OMVS process, and `NA` otherwise.
+Three types of session are listed, and nothing else:
 
-`CPU` is seconds.milliseconds, whether it comes from the TSO/E record's `CT`
-or from `CT_SECS` on the session's OMVS process. `PROCS` counts the processes
-below the session's own: the sshd and the shell and whatever they started, or
-the POSIX work a TSO/E session has running. Each fork gets its own address
-space on z/OS, which is why the count follows the pid tree rather than the
-ASID.
+- `TSO/E` — an address space with a TSO/E session control block (`ASCBTSB` is
+  not zero). That covers a logon at a terminal, under ISPF or not, and it
+  covers a z/OSMF user too, because z/OSMF logs its users on with a TSO/E
+  logon procedure.
+- `z/OSMF` — a `TSO/E` session whose logon procedure is the one z/OSMF is
+  configured with. The z/OSMF Configuration Guide names it twice: `FILEPROC`
+  for the data set and file REST services and `COMMONPROC` for the common TSO
+  services, both defaulting to `IZUFPROC`, the procedure IBM ships in
+  `SYS1.PROCLIB`. That is what separates a user who came in through the
+  z/OSMF web interface from one who logged on at a terminal: same TSO/E
+  machinery, different logon procedure.
+- `SSH` — an `sshd` started with `-R`, which is the process sshd forks per
+  connection (the listener runs without the flag). A connection that has not
+  authenticated yet still runs under the daemon account and is not listed.
+
+Started tasks, OMVS daemons and the processes inside a session are not
+sessions and are not listed: `TCPIP`, `CEA`, `IZUSVR` and the shells behind an
+`sshd` are all absent from the table by design.
+
+`JOBNAME` is `ASCBJBNI`, the job name, and `LOGONPROC` is `ASCBJBNS`, the name
+the address space was started with — for a TSO/E session that is the logon
+procedure. `ASID` is the address space id, `PID` the POSIX process id where
+one exists (`-` for a session that has none), and `CPU` is the sum of the
+address space's TCB and SRB accumulator (`ASCBEJST` + `ASCBSRBT`, in
+1024-microsecond units) as `hours:minutes:seconds`.
 
 ```sh
 whoson            # the table
@@ -38,21 +52,17 @@ whoson --help
 
 ## Requirements
 
-- z/OS with ZOAU installed at `/usr/lpp/IBM/zoautil` (v1.3 or later: the
-  program talks to its shared library and needs the v4 vector table).
-- IBM Open XL C/C++ (`ibm-clang`) for the build.
-- `LIBPATH` must include `/usr/lpp/IBM/zoautil/lib` at run time, or the loader
-  stops the program with `CEE3501S The module zoautil.so was not found`. The
-  `Makefile` sets it for `make check`; `~/.zashrc` and `~/.ssh/environment` set
-  it for interactive shells on the CBT system.
+- z/OS 2.1 or later.
+- IBM Open XL C/C++ (`ibm-clang`) to build it.
 
-The build is 64-bit on purpose: the ZOAU shared library is a 64-bit DLL, so
-its sidedeck imports `CODE64`.
+There is nothing else: no ZOAU, no console access, no `LIBPATH`, and no
+authorization. The program reads only common storage, which is mapped into
+every address space.
 
 ## Install
 
-Releases ship the sources, not a binary: whoson links the ZOAU 64-bit DLL and
-only builds on z/OS. Unpack a release, build it, install it:
+Releases ship the sources, not a binary: whoson only builds on z/OS. Unpack a
+release, build it, install it:
 
 ```sh
 gh release download --repo skurtz97/whoson --pattern 'whoson-*'
@@ -66,12 +76,13 @@ cd whoson-*/ && make && make install
 Without the `chtag`, IBM's make reads the Makefile as one line and stops with
 `FSUM8705 No target`.
 
-Or from a checkout, `make install` straight away.
+Or from a checkout, `make install` straight away. It copies the binary to
+`~/.local/bin`; `PREFIX` moves it (`make PREFIX=/usr/local install`).
 
 ## Build and run
 
 ```sh
-make            # builds ./whoson with ibm-clang, -m64, ASCII character mode
+make            # builds ./whoson with ibm-clang, ASCII character mode
 make check      # runs it under the CEE heap checker and storage report
 make list       # builds, and writes a compiler listing to whoson.listing
 make install    # copies it to ~/.local/bin, creating it if needed
@@ -84,46 +95,39 @@ grouped by function, which is readable without a debugger.
 Every build is the release build: `-O3` and no `-g`. A z/OS program object
 carries no symbol table, so there is nothing to strip afterwards.
 
-`PREFIX` defaults to `$(HOME)/.local`; pass your own to install elsewhere:
-
-```sh
-make PREFIX=/usr/local install   # -> /usr/local/bin/whoson
-```
-
 The sources are ASCII and stay that way; the build is in ASCII character mode
-(`-fzos-le-char-mode=ascii`). ZOAU hands its display back in EBCDIC, so
-`run_display` converts each response in place (`__e2a_l`) before it is parsed.
+(`-fzos-le-char-mode=ascii`), which the 64-bit target is the only one to
+accept. Names read out of control blocks arrive in EBCDIC and are converted
+once, as they are copied.
 
 Output does not go through `printf`. `emit()` writes every message and the
 table itself with `write(2)`, in the character set the destination expects:
 plain ASCII when the descriptor is a terminal, EBCDIC when it is a pipe, a
-socket or a file. CEE would convert stdio output from ASCII to EBCDIC on a
-terminal, and this system's sshd converts the other way for a command it runs
-without a tty, so neither `printf` nor a raw `write()` is correct on both
-paths. Help and error text go through the same `emit()`, so `whoson -h` and
-the usage message are readable whichever way they are run.
+socket or a file. CEE converts stdio output from ASCII to EBCDIC on a terminal,
+and this system's sshd converts the other way for a command it runs without a
+tty, so neither `printf` nor a raw `write()` is right on both paths. Help and
+error text go through the same `emit()`, so `whoson -h` and the usage message
+are readable whichever way they are run.
 
 ## How the data is produced
 
-Both displays go through the ZOAU shared library vector (`vector->opercmd`),
-so the program does not shell out to `opercmd`:
+No display command and no subsystem interface is involved:
 
-- `DISPLAY TS,A` lists TSO/E sessions: user, status, address space id, CPU
-  time (`CT`), elapsed time (`ET`), job id (`WUID`), service class, priority
-  and region (`RGP`). `USERID=` in the same record is the account, which is
-  not always the job name in the first column. `DISPLAY TSO,...` is not a
-  valid command on this system, and `DISPLAY TS,L` omits the timing fields,
-  so `,A` is used.
-- `DISPLAY OMVS,A=ALL` lists OMVS processes. An `sshd` process is a session;
-  the account that owns the `sshd` process whose parent is the init process is
-  a daemon account and is dropped, which keeps started tasks out of the list.
-  The row's `CT_SECS` and `PPID` give the session its CPU time and the rest of
-  its pid tree.
+- `CVT` is at `PSA+X'10'`, `CVTASVT` at `CVT+X'22C'`. The ASVT holds
+  `ASVTMAXU` at `+X'204'` and the array of ASCB pointers at `+X'210'`; an
+  entry with the high bit set is a free ASID, and `ASCB` at offset 0 proves
+  the rest point at an address space control block.
+- From each ASCB: `ASCBASID` (`X'24'`), `ASCBTSB` (`X'3C'`, the TSO/E test),
+  `ASCBEJST` (`X'40'`) and `ASCBSRBT` (`X'C8'`) for CPU, `ASCBJBNI` (`X'AC'`)
+  and `ASCBJBNS` (`X'B0'`) for the two names. The name pointers address common
+  storage, so no cross-memory services are needed to follow them.
+- `ps -A -o pid,jobname,user,time,args` supplies the pid, the user and the
+  command. The job name joins a process to an address space; the command is
+  what tells an `sshd` session (`-R`) from its listener.
 
-The vector's `opercmd` splits its argument string into `argv` without a shell,
-so the console command is passed quoted (`"D TS,A"`) as a single argument.
-Unquoted, the `D` is read as an option letter and the call fails with
-`opercmd`'s usage text and rc 2.
+The offsets above are the ones the ASCB and ASVT macros on the system
+generate, and they are the ones the fields were read at when the walk was
+checked against `DISPLAY TS`.
 
 ## Contributing
 
