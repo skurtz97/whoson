@@ -44,9 +44,9 @@
 #define CMD_LEN 256
 #define TIME_LEN 16
 
-/* ASCB field offsets (mvs-data-areas, checked against IHAASCB on the system). */
+/* ASCB field offsets: mvs-data-areas, checked against IHAASCB here. */
 #define ASCB_ASID 0x24u
-#define ASCB_TSB  0x3Cu
+#define ASCB_TSB 0x3Cu
 #define ASCB_EJST 0x40u
 #define ASCB_JBNI 0xACu
 #define ASCB_JBNS 0xB0u
@@ -148,7 +148,6 @@ static void copy_field(char *dst, size_t dstlen, const char *src) {
     snprintf(dst, dstlen, "%s", src);
 }
 
-
 /* Copy the 8-byte name a control block points at. These pointers address
  * common storage, so no cross-memory services are needed to read them. */
 static void copy_name(char *dst, uint32_t ptr) {
@@ -196,10 +195,13 @@ static int ascb_scan(struct space *sp, int max) {
             continue;
         sp[n].asid = *(volatile uint16_t *)(uintptr_t)(ascb + ASCB_ASID);
         sp[n].tso = *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_TSB) != 0;
-        sp[n].cpu = *(volatile unsigned long long *)(uintptr_t)(ascb + ASCB_EJST) +
-                    *(volatile unsigned long long *)(uintptr_t)(ascb + ASCB_SRBT);
-        copy_name(sp[n].job, *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_JBNI));
-        copy_name(sp[n].logon, *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_JBNS));
+        sp[n].cpu =
+            *(volatile unsigned long long *)(uintptr_t)(ascb + ASCB_EJST) +
+            *(volatile unsigned long long *)(uintptr_t)(ascb + ASCB_SRBT);
+        copy_name(sp[n].job,
+                  *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_JBNI));
+        copy_name(sp[n].logon,
+                  *(volatile uint32_t *)(uintptr_t)(ascb + ASCB_JBNS));
         if (sp[n].job[0] == '\0')
             copy_field(sp[n].job, JOB_LEN, sp[n].logon);
         sp[n].user[0] = '\0';
@@ -245,7 +247,6 @@ static int ps_scan(struct proc *pr, int max) {
     pclose(fp);
     return n;
 }
-
 
 /* An sshd started with -R serves one connection; the listener runs without
  * it, so the flag is what separates a session from the daemon. */
@@ -365,8 +366,7 @@ int main(int argc, char **argv) {
     int arg;
 
     for (arg = 1; arg < argc; arg++) {
-        if (strcmp(argv[arg], "-h") == 0 ||
-            strcmp(argv[arg], "--help") == 0) {
+        if (strcmp(argv[arg], "-h") == 0 || strcmp(argv[arg], "--help") == 0) {
             emit_str(STDOUT_FILENO, usage_text);
             return 0;
         } else if (strcmp(argv[arg], "-V") == 0 ||
