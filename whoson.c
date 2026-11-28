@@ -448,18 +448,20 @@ static int scan_one(unsigned idx, uint32_t entry, uint32_t entries,
           read_u64(ascb + (uint32_t)offsetof(struct ascb, ascbsrbt));
     cscb = read_u32(ascb + (uint32_t)offsetof(struct ascb, ascbcscb));
     tso = read_u32(ascb + (uint32_t)offsetof(struct ascb, ascbtsb)) != 0;
-    if (cscb != 0) {
-        uint32_t assb;
+    {
+        uint32_t assb =
+            read_u32(ascb + (uint32_t)offsetof(struct ascb, ascbassb));
 
+        if (assb != 0)
+            tod += read_u64(assb + (uint32_t)offsetof(struct assb, assbasst));
+    }
+    if (cscb != 0) {
         read_tagged_name(cscb + (uint32_t)offsetof(struct cscb, chkey), key,
                          sizeof(key));
         read_tagged_name(cscb + (uint32_t)offsetof(struct cscb, chcls), cls,
                          sizeof(cls));
         if (read_u8(cscb + (uint32_t)offsetof(struct cscb, chtrkid)) == 0x01)
             tso = true;
-        assb = read_u32(ascb + (uint32_t)offsetof(struct ascb, ascbassb));
-        if (assb != 0)
-            tod += read_u64(assb + (uint32_t)offsetof(struct assb, assbasst));
     }
     read_name(read_u32(ascb + (uint32_t)offsetof(struct ascb, ascbjbni)),
               tmp.job, sizeof(tmp.job));
@@ -984,7 +986,6 @@ static int collect(struct row *rows, size_t maxrows, const struct space *snap,
                    unsigned maxu, const struct proc *procs, size_t nprocs,
                    const struct pid_asid *map, size_t nmap) {
     size_t n = 0;
-    size_t ssh_start;
     unsigned i;
     size_t k;
 
@@ -1003,15 +1004,12 @@ static int collect(struct row *rows, size_t maxrows, const struct space *snap,
                  snap[i].logon[0] != '\0' ? snap[i].logon : "-");
         n++;
     }
-    ssh_start = n;
     for (k = 0; k < nprocs && n < maxrows; k++) {
         const struct proc *parent;
         const struct pid_asid *pa;
         unsigned asid = 0;
         uint64_t us = 0;
         const char *job = "-";
-        size_t r;
-        bool dup = false;
 
         parent = find_proc(procs, nprocs, procs[k].ppid);
         if (parent == NULL || !is_sshd(parent->name) || is_sshd(procs[k].name))
@@ -1023,14 +1021,6 @@ static int collect(struct row *rows, size_t maxrows, const struct space *snap,
             if (snap[asid - 1].job[0] != '\0')
                 job = snap[asid - 1].job;
         }
-        if (asid != 0) {
-            for (r = ssh_start; r < n; r++) {
-                if (rows[r].asid == asid)
-                    dup = true;
-            }
-        }
-        if (dup)
-            continue;
         rows[n].asid = asid;
         rows[n].tso = false;
         rows[n].us = us;
@@ -1056,7 +1046,6 @@ int main(int argc, char **argv) {
     uint32_t entries;
     int nrows;
     int arg;
-    size_t bytes;
     size_t space_bytes;
 
     save_cvt(STDOUT_FILENO);
@@ -1082,14 +1071,12 @@ int main(int argc, char **argv) {
         return 1;
     }
     space_bytes = (sizeof(struct space) + 15u) & ~(size_t)15u;
-    bytes = (size_t)maxu * (space_bytes + sizeof(struct row));
-    snap = calloc(1, bytes);
+    snap = calloc(1, (size_t)maxu * space_bytes);
     if (snap == NULL) {
         unguard();
         error_msg("whoson: out of memory for %u address spaces\n", maxu);
         return 1;
     }
-    rows = (struct row *)(void *)((char *)snap + (size_t)maxu * space_bytes);
     ascb_scan(entries, maxu, snap, &found);
     unguard();
     if (found == 0) {
@@ -1107,9 +1094,22 @@ int main(int argc, char **argv) {
         return 1;
     }
     qsort(map, nmap, sizeof(*map), cmp_pid_asid);
-    nrows = collect(rows, maxu, snap, maxu, procs, nprocs, map, nmap);
+    /* At most one TSO row per address space and one SSH row per process, so
+     * the table can hold both lists; maxu alone would drop SSH sessions on a
+     * system that shares address spaces (_BPX_SHAREAS). */
+    rows = calloc((size_t)maxu + nprocs, sizeof(*rows));
+    if (rows == NULL) {
+        error_msg("whoson: out of memory for the session table\n");
+        free(procs);
+        free(map);
+        free(snap);
+        return 1;
+    }
+    nrows = collect(rows, (size_t)maxu + nprocs, snap, maxu, procs, nprocs, map,
+                    nmap);
     qsort(rows, (size_t)nrows, sizeof(*rows), cmp_rows);
     print_rows(rows, (size_t)nrows);
+    free(rows);
     free(procs);
     free(map);
     free(snap);

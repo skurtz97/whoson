@@ -53,7 +53,7 @@ units.
 
 ```sh
 whoson            # the table
-whoson --version  # whoson 1.0.0
+whoson --version  # whoson 1.1.0
 whoson --help
 ```
 
@@ -88,6 +88,18 @@ Without the `chtag`, IBM's make reads the Makefile as one line and stops with
 
 Or from a checkout, `make install` straight away. It copies the binary to
 `~/.local/bin`; `PREFIX` moves it (`make PREFIX=/usr/local install`).
+
+With [zopen][zopen-guide], from a checkout or a release tree:
+
+```sh
+zopen build
+```
+
+`buildenv` in the repository root is the port: `zopen build` pulls the
+release tarball (or the git tree on the DEV line), builds with the zopen
+clang, runs `make check`, and installs `whoson` under `$ZOPEN_INSTALL_DIR`,
+so it appears on `PATH` through the zopen configuration. No flags or
+extra dependencies are needed. `zopen build -b DEV` builds `main`.
 
 ## Build and run
 
@@ -124,6 +136,7 @@ where `printf` and a raw `write()` each get one of the two wrong. Help and
 error text go through the same `emit()`.
 
 [zopen]: https://zopen.community/Guides/CommonSolutions
+[zopen-guide]: https://zopen.community/Guides/Porting
 
 ## How the data is produced
 
@@ -158,6 +171,12 @@ No display command and no subsystem interface is involved:
 - SSH rows need `w_getpsent()` visibility, as described under Requirements.
   Only pty logins have a `/etc/utmpx` record; whoson does not read it, so a
   session's tty and remote address are not shown.
+- Not shown, because common storage does not carry them or reaching them
+  needs authority this program does not ask for: the session start time, the
+  JES job id, real frames in use, swapped-out or logon-in-progress state, the
+  CEA application tag, and the 3270 LU or TN3270 client address. A system
+  name column (for sysplex) and `otelnetd`/`orlogind` sessions are also not
+  handled yet.
 
 The offsets above are the ones the ASVT, ASCB, CSCB and ASSB macros on the
 system generate, and they were checked against a probe that read all 355

@@ -16,6 +16,17 @@ make install    # -> ~/.local/bin/whoson
 Needs IBM Open XL C/C++ 2.2 (`ibm-clang`, pinned by absolute path in the
 `Makefile`) and z/OS 2.5 or later, the oldest target that compiler accepts.
 
+`buildenv` is the zopen port. From a checkout or a release tree:
+
+```sh
+zopen build             # stable: the release tarball
+zopen build -b DEV      # the git tree on main
+```
+
+It builds with the compiler zopen detects, runs `make check`, and installs
+`whoson` under `$ZOPEN_INSTALL_DIR`. Bump `WHOSON_VERSION` there with `VERSION`
+in the `Makefile`; CI checks they agree.
+
 GNU make and IBM's make both have to parse the Makefile: keep it to POSIX make
 syntax (`?=` is out), and let `make -n` stay free of side effects.
 
@@ -40,11 +51,13 @@ syntax (`?=` is out), and let `make -n` stay free of side effects.
 
 ## Releasing
 
-1. Bump `VERSION` in the `Makefile` and add the entry to `CHANGELOG.md`.
+1. Bump `VERSION` in the `Makefile`, `WHOSON_VERSION` in `buildenv`, and add
+   the entry to `CHANGELOG.md`.
 2. Merge, then tag `main` with `v<version>` and push the tag.
 3. `.github/workflows/release.yml` refuses a tag that disagrees with
    `VERSION`, takes the release notes from that `CHANGELOG.md` section, and
-   attaches the source archive with its sha256.
+   attaches the source archive with its sha256. `buildenv` fetches that same
+   archive for the zopen stable build.
 
 There is no binary in a release: whoson only builds on z/OS, so a release
 ships the sources and the build instructions.

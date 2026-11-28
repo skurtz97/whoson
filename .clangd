@@ -22,6 +22,11 @@ Diagnostics:
     - unknown_typename
     - incomplete_type
     - implicit_function_declaration
+    - implicit-function-declaration
+    - typecheck_decl_incomplete_type
+    - field_incomplete_or_sizeless
+    - no_member
+    - fatal_too_many_errors
   ClangTidy:
     # Use .clang-tidy; do not duplicate its checks here.
     FastCheckFilter: Strict

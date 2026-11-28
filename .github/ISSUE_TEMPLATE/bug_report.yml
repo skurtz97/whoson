@@ -30,7 +30,7 @@ body:
     id: version
     attributes:
       label: whoson --version
-      placeholder: whoson 1.0.0
+      placeholder: whoson 1.1.0
     validations:
       required: true
 
