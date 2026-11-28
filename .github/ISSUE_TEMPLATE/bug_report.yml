@@ -5,15 +5,16 @@ body:
   - type: markdown
     attributes:
       value: |
-        whoson only reads two console displays, so the most useful thing you
-        can attach is what those displays said. On an operator console:
-        `D TS,A` for TSO/E sessions, `D OMVS,A=ALL` for processes.
+        whoson reads common storage and the process table, so the most useful
+        thing you can attach is the output of `ps -A -o pid,xasid` and, for a
+        TSO/E row, what `D TS,A` says about that address space.
 
   - type: textarea
     id: happened
     attributes:
       label: What happened
-      description: Paste the whoson output, and the display it disagrees with.
+      description: Paste the whoson output, and the `ps`/`D TS,A`
+        output it disagrees with.
       render: text
     validations:
       required: true
@@ -36,10 +37,10 @@ body:
   - type: input
     id: system
     attributes:
-      label: z/OS release and ZOAU level
-      description: The `uname -a` output, and the ZOAU level (`pkglist`,
-        or the install directory).
-      placeholder: z/OS 3.1, ZOAU 1.3.4
+      label: z/OS release and Open XL level
+      description: The `uname -a` output, and the compiler level
+        (`ibm-clang --version`).
+      placeholder: z/OS 3.1, Open XL 2.2.0
     validations:
       required: true
 

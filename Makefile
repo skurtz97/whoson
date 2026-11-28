@@ -16,9 +16,11 @@
 # the source needs 64 bits - the control block pointers are 32-bit - so if
 # the ASCII mode is ever dropped, -m64 goes with it.
 #
-# ASCII character mode is deliberate: ps output and the ssh channel are
-# ASCII, so literals stay ASCII and the names copied out of EBCDIC storage
-# are converted once, in copy_name(). Source stays ASCII-tagged.
+# ASCII character mode is deliberate: the source is tagged ISO8859-1, so
+# literals stay ASCII. Output is converted by the C runtime from the
+# descriptor's tag (emit()): a file becomes ISO8859-1 (CCSID 819), a terminal
+# or pipe IBM-1047, and the tag also tells read() what ps wrote. _OPEN_SYS and
+# _OPEN_SYS_FILE_EXT expose __fchattr(), attrib_t and F_CONTROL_CVT.
 #
 # Every build is the release build: -O3, no -g, and a z/OS program object has
 # no symbol table to remove.
@@ -37,9 +39,10 @@ CCDIR     = /usr/lpp/IBM/cnw/v2r2/openxl/bin
 CC        = $(CCDIR)/ibm-clang
 LISTFMT   = $(CCDIR)/ibm-clang-listing-formatter
 CPPFLAGS  = -D_XOPEN_SOURCE=600 -D_POSIX_C_SOURCE=200809L -D_ALL_SOURCE \
-	    -D_EXT -DWHOSON_VERSION=\"$(VERSION)\"
-CFLAGS    = -std=c17 -O3 -m64 -fzos-le-char-mode=ascii -Wall -Wextra \
-	    -Wpedantic -Wshadow -Wconversion
+	    -D_EXT -D_OPEN_SYS -D_OPEN_SYS_FILE_EXT \
+	    -DWHOSON_VERSION=\"$(VERSION)\"
+CFLAGS    = -std=c17 -O3 -m64 -mzos-target=zosv2r5 -fzos-le-char-mode=ascii \
+	    -Wall -Wextra -Wpedantic -Wshadow -Wconversion
 CEEOPTS   = HEAPCHK(ON,1,32),RPTSTG(ON),FILETAG(AUTOCVT,AUTOTAG),POSIX(ON)
 
 .PHONY: all install check list clean

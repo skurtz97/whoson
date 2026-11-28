@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      # The build itself needs z/OS and the ZOAU headers, so this job only
+      # The build itself needs z/OS and IBM Open XL, so this job only
       # proves that the Makefile parses under GNU make and that each recipe is
       # well formed.  -n runs nothing.
       - run: make -n all
