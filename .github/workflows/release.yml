@@ -1,7 +1,7 @@
 name: release
 
 # Pushing v1.2.3 creates the release and attaches the source archive.  There is
-# no binary: whoson links against the ZOAU 64-bit DLL and only builds on z/OS,
+# no binary: whoson only builds on z/OS,
 # which no hosted runner provides.
 on:
   push:

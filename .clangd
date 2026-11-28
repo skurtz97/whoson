@@ -3,7 +3,8 @@
 # macros here.
 CompileFlags:
   Add: [-std=c17, -D_XOPEN_SOURCE=600, -D_POSIX_C_SOURCE=200809L,
-        -D_ALL_SOURCE, -D_EXT, -Wall, -Wextra, -Wshadow, -Wconversion]
+        -D_ALL_SOURCE, -D_EXT, -D_OPEN_SYS, -D_OPEN_SYS_FILE_EXT,
+        -Wall, -Wextra, -Wshadow, -Wconversion]
   # IBM Open XL only: the editor is not that compiler.
   Remove: [-fzos-le-char-mode=*, -m64]
 
@@ -11,6 +12,16 @@ CompileFlags:
 Diagnostics:
   UnusedIncludes: Strict
   MissingIncludes: None
+  # The tree only builds on z/OS with IBM Open XL: Linux clangd has no
+  # <sys/ps.h>, no attrib_t/st_tag, no F_CONTROL_CVT and no __fchattr, so its
+  # cascade from the missing z/OS headers is noise. The build on z/OS is the
+  # authority; these are the diagnostics that cascade from those headers.
+  Suppress:
+    - pp_file_not_found
+    - undeclared_var_use
+    - unknown_typename
+    - incomplete_type
+    - implicit_function_declaration
   ClangTidy:
     # Use .clang-tidy; do not duplicate its checks here.
     FastCheckFilter: Strict
