@@ -1,7 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
+Rewritten to read the system directly, and packaged as a zopen port. This is
+the first release since 1.0.0; the entries below are the changes since then.
+
+- A `buildenv` makes the tree a zopen port: `zopen build` fetches the release
+tarball, builds with the zopen clang, runs `make check` and installs under
+`$ZOPEN_INSTALL_DIR`. The stable port and the GitHub release are the same
+archive.
+- The session table is sized from `ASVTMAXU` plus the number of processes,
+  and rows are no longer collapsed by ASID, so separate sessions that share an
+  address space (`_BPX_SHAREAS`) are all listed.
 - Rewritten without ZOAU and without a console display. Sessions are read
   straight out of common storage, walking CVT -> ASVT -> ASCB, which needs no
   APF authorization, no supervisor state and no key zero; SSH sessions come
@@ -18,18 +28,21 @@
   (falling back to `ASCBJBNS` when it is blank), and the logon procedure comes
   from the session's CSCB (`CHCLS`), not from `ASCBJBNS`.
 - `CPU` adds `ASSBASST` to `ASCBEJST` + `ASCBSRBT` and converts TOD units with
-  `>> 12`; the old rewrite multiplied by 1024, overstating CPU time by 2^22.
+  `>> 12`; the earlier code multiplied by 1024, overstating CPU time by 2^22.
+- The ASVT walk validates each ASCB, and a fault while reading a terminated
+  address space skips that row instead of abending. All tables are allocated
+  after the scans that size them, so no fixed ceiling is left behind.
 - `SSH` rows come from the process tree (parent `sshd`, child not `sshd`), not
   from `-R`, so OpenSSH 9.8's `sshd-session` and unauthenticated preauth
   children are handled. Rows join to the ASCB by ASID.
-- The ASVT walk sizes itself from `ASVTMAXU`, validates each ASCB, and a fault
-  while reading a terminated address space skips that row instead of abending.
 - Output follows the zopen character-set convention: files are tagged
   ISO8859-1 (CCSID 819) and receive ASCII; terminals, pipes and EBCDIC files
   are IBM-1047 with the runtime converting from ASCII (`F_CONTROL_CVT`). The
   same tag drives how `ps` output is read.
 - Requires z/OS 2.5 or later. Revises the tooling docs, CI comment and issue
   templates to drop ZOAU and the old console displays.
+- The README lists what the table does not show: session start time, JES job
+  id, frames, swap state, CEA application tag and the SSH tty/remote host.
 
 ## 1.0.0
 

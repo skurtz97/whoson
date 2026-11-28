@@ -34,7 +34,7 @@ PREFIX    = $(HOME)/.local
 BINDIR    = $(PREFIX)/bin
 # The release workflow refuses a tag that does not match this, and the binary
 # reports it through --version.
-VERSION   = 1.0.0
+VERSION   = 1.1.0
 CCDIR     = /usr/lpp/IBM/cnw/v2r2/openxl/bin
 CC        = $(CCDIR)/ibm-clang
 LISTFMT   = $(CCDIR)/ibm-clang-listing-formatter

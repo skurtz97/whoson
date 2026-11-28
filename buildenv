@@ -1,0 +1,56 @@
+# zopen build configuration for whoson.
+#
+# The stable source is the release tarball, so the port builds exactly what
+# the GitHub release ships.  Bump WHOSON_VERSION together with Makefile's
+# VERSION and the release tag; the CI job checks the first two agree.
+# `zopen build -b DEV` uses the git tree instead.
+
+WHOSON_VERSION="1.1.0"
+
+export ZOPEN_PROJECT_NAME="whoson"
+export ZOPEN_NAME="whoson"
+export ZOPEN_BUILD_LINE="STABLE"
+export ZOPEN_CATEGORIES="utilities monitoring"
+export ZOPEN_STABLE_URL="https://github.com/skurtz97/whoson/releases/download/v${WHOSON_VERSION}/whoson-${WHOSON_VERSION}.tar.gz"
+export ZOPEN_STABLE_DEPS="make"
+export ZOPEN_DEV_URL="https://github.com/skurtz97/whoson.git"
+export ZOPEN_DEV_TAG="main"
+export ZOPEN_DEV_DEPS="make"
+export ZOPEN_COMP="CLANG"
+# whoson calls libc and POSIX only; zoslib would add a runtime dependency the
+# package does not declare.
+export ZOPEN_DONT_ADD_ZOSLIB_DEP="1"
+
+# Plain make, no configure script.
+export ZOPEN_CONFIGURE="skip"
+
+# The Makefile pins its own compiler and flags, and zopen's injected CFLAGS
+# would replace them.  The port only passes the compiler zopen detected.
+# These strings are eval'd at build time, when PATH and CC are set.
+export ZOPEN_MAKE_MINIMAL="1"
+export ZOPEN_MAKE_OPTS='CC=${CC:-clang}'
+export ZOPEN_CHECK="make"
+export ZOPEN_CHECK_OPTS='check CC=${CC:-clang}'
+export ZOPEN_CHECK_MINIMAL="1"
+export ZOPEN_INSTALL_OPTS='install CC=${CC:-clang} PREFIX=$ZOPEN_INSTALL_DIR'
+export ZOPEN_INSTALL_MINIMAL="1"
+
+# `make check` runs the binary once: its only job is to prove the program
+# starts and reads the control blocks on the build system.
+zopen_check_results()
+{
+  chk="$1/$2_check.log"
+  if grep -q '^USER ' "$chk"; then
+    failures=0
+  else
+    failures=1
+  fi
+  echo "actualFailures:${failures}"
+  echo "totalTests:1"
+  echo "expectedFailures:0"
+}
+
+zopen_get_version()
+{
+  echo "$WHOSON_VERSION"
+}

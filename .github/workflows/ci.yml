@@ -37,3 +37,22 @@ jobs:
       # well formed.  -n runs nothing.
       - run: make -n all
       - run: make -n install check list
+
+  port:
+    name: zopen port
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # buildenv is sourced by zopen's shell, and the port's stable tarball
+      # must be the release this tree claims to be.
+      - run: sh -n buildenv
+      - name: buildenv matches VERSION
+        run: |
+          version=$(sed -n 's/^VERSION[[:space:]]*=[[:space:]]*//p' Makefile)
+          port=$(sed -n 's/^WHOSON_VERSION="\(.*\)"/\1/p' buildenv)
+          if [ "$version" != "$port" ]; then
+              echo "buildenv $port != Makefile $version" >&2
+              exit 1
+          fi
